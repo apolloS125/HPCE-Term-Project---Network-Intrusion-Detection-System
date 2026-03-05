@@ -1,0 +1,348 @@
+// common.h - Shared data structures, SVM & DBSCAN algorithms, I/O, timing
+#ifndef COMMON_H
+#define COMMON_H
+
+#include <vector>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <cmath>
+#include <algorithm>
+#include <numeric>
+#include <chrono>
+#include <iomanip>
+#include <cassert>
+#include <cstdlib>
+#include <map>
+
+using namespace std;
+
+// ===================== DATA I/O =====================
+vector<vector<double>> load_csv(const string& filename) {
+    vector<vector<double>> data;
+    ifstream file(filename);
+    if (!file.is_open()) { cerr << "Cannot open " << filename << endl; exit(1); }
+    string line;
+    while (getline(file, line)) {
+        vector<double> row;
+        stringstream ss(line);
+        string val;
+        while (getline(ss, val, ',')) row.push_back(stod(val));
+        if (!row.empty()) data.push_back(row);
+    }
+    return data;
+}
+
+vector<int> load_labels(const string& filename) {
+    vector<int> labels;
+    ifstream file(filename);
+    string line;
+    while (getline(file, line)) labels.push_back(stoi(line));
+    return labels;
+}
+
+// ===================== TIMER =====================
+struct Timer {
+    chrono::high_resolution_clock::time_point start_time;
+    void start() { start_time = chrono::high_resolution_clock::now(); }
+    double elapsed_ms() {
+        auto end = chrono::high_resolution_clock::now();
+        return chrono::duration<double, milli>(end - start_time).count();
+    }
+    double elapsed_sec() { return elapsed_ms() / 1000.0; }
+};
+
+// ===================== METRICS =====================
+void print_metrics(const string& technique, double time_sec,
+                   long long flop_count, int n_samples, int n_features) {
+    double gflops = (flop_count / 1e9) / time_sec;
+    cout << "\n========================================" << endl;
+    cout << "  Technique:  " << technique << endl;
+    cout << "  Samples:    " << n_samples << endl;
+    cout << "  Features:   " << n_features << endl;
+    cout << "  Time:       " << fixed << setprecision(3) << time_sec * 1000 << " ms" << endl;
+    cout << "  FLOP Count: " << flop_count << endl;
+    cout << "  GFLOPS:     " << fixed << setprecision(4) << gflops << endl;
+    cout << "========================================\n" << endl;
+}
+
+double accuracy(const vector<int>& pred, const vector<int>& truth) {
+    int correct = 0;
+    for (size_t i = 0; i < pred.size(); i++)
+        if (pred[i] == truth[i]) correct++;
+    return (double)correct / pred.size() * 100.0;
+}
+
+void print_confusion_matrix(const vector<int>& pred, const vector<int>& truth, int n_classes) {
+    vector<vector<int>> cm(n_classes, vector<int>(n_classes, 0));
+    for (size_t i = 0; i < pred.size(); i++)
+        if (pred[i] >= 0 && pred[i] < n_classes && truth[i] >= 0 && truth[i] < n_classes)
+            cm[truth[i]][pred[i]]++;
+    
+    string names[] = {"Normal", "DoS", "Probe", "R2L", "U2R"};
+    cout << "Confusion Matrix (rows=actual, cols=predicted):" << endl;
+    cout << setw(10) << "";
+    for (int j = 0; j < n_classes; j++) cout << setw(8) << names[j];
+    cout << endl;
+    for (int i = 0; i < n_classes; i++) {
+        cout << setw(10) << names[i];
+        for (int j = 0; j < n_classes; j++) cout << setw(8) << cm[i][j];
+        cout << endl;
+    }
+}
+
+// ===================== RBF KERNEL =====================
+inline double rbf_kernel(const vector<double>& a, const vector<double>& b, double gamma) {
+    double dist_sq = 0.0;
+    for (size_t i = 0; i < a.size(); i++) {
+        double d = a[i] - b[i];
+        dist_sq += d * d;
+    }
+    return exp(-gamma * dist_sq);
+}
+
+// ===================== EUCLIDEAN DISTANCE =====================
+inline double euclidean_dist(const vector<double>& a, const vector<double>& b) {
+    double sum = 0.0;
+    for (size_t i = 0; i < a.size(); i++) {
+        double d = a[i] - b[i];
+        sum += d * d;
+    }
+    return sqrt(sum);
+}
+
+// ===================== SIMPLE SVM (1-vs-1 with RBF) =====================
+// Simplified SVM using kernel perceptron (for educational purposes)
+// For production use SMO, but this is sufficient for HPCE performance comparison
+struct SVMModel {
+    vector<vector<double>> support_vectors;
+    vector<double> alphas;
+    double bias;
+    double gamma;
+    int class_a, class_b;
+};
+
+struct MultiClassSVM {
+    vector<SVMModel> models;
+    int n_classes;
+    double gamma;
+    int max_iter;
+    double lr;
+
+    MultiClassSVM(int nc = 5, double g = 0.1, int mi = 100, double learning_rate = 0.01)
+        : n_classes(nc), gamma(g), max_iter(mi), lr(learning_rate) {}
+
+    // Train binary SVM using simplified SGD on hinge loss with RBF kernel
+    SVMModel train_binary(const vector<vector<double>>& data, const vector<int>& labels,
+                          int ca, int cb) {
+        SVMModel model;
+        model.gamma = gamma;
+        model.class_a = ca;
+        model.class_b = cb;
+
+        // Extract relevant samples
+        vector<int> indices;
+        for (size_t i = 0; i < labels.size(); i++)
+            if (labels[i] == ca || labels[i] == cb) indices.push_back(i);
+
+        int n = indices.size();
+        if (n == 0) return model;
+
+        // Store all as support vectors (kernel perceptron approach)
+        model.support_vectors.resize(n);
+        model.alphas.resize(n, 0.0);
+        model.bias = 0.0;
+
+        vector<double> y(n);
+        for (int i = 0; i < n; i++) {
+            model.support_vectors[i] = data[indices[i]];
+            y[i] = (labels[indices[i]] == ca) ? 1.0 : -1.0;
+        }
+
+        // Training loop (simplified kernel perceptron)
+        for (int iter = 0; iter < max_iter; iter++) {
+            int errors = 0;
+            for (int i = 0; i < n; i++) {
+                double score = model.bias;
+                for (int j = 0; j < n; j++) {
+                    if (model.alphas[j] != 0.0) {
+                        score += model.alphas[j] * rbf_kernel(model.support_vectors[j],
+                                                               model.support_vectors[i], gamma);
+                    }
+                }
+                if (y[i] * score <= 0) {  // misclassified
+                    model.alphas[i] += lr * y[i];
+                    model.bias += lr * y[i];
+                    errors++;
+                }
+            }
+            if (errors == 0) break;
+        }
+        return model;
+    }
+
+    // Predict single sample with binary model + confidence
+    pair<int, double> predict_binary(const SVMModel& model, const vector<double>& x) {
+        double score = model.bias;
+        for (size_t j = 0; j < model.support_vectors.size(); j++) {
+            if (model.alphas[j] != 0.0) {
+                score += model.alphas[j] * rbf_kernel(model.support_vectors[j], x, model.gamma);
+            }
+        }
+        int pred = (score >= 0) ? model.class_a : model.class_b;
+        return {pred, fabs(score)};
+    }
+
+    // Train all 1-vs-1 classifiers
+    long long train(const vector<vector<double>>& data, const vector<int>& labels) {
+        Timer t; t.start();
+        models.clear();
+        long long total_flops = 0;
+        for (int i = 0; i < n_classes; i++) {
+            for (int j = i + 1; j < n_classes; j++) {
+                models.push_back(train_binary(data, labels, i, j));
+                // Count training FLOPs: iterations * n * n * (3D + 2)
+                int n_sv = models.back().support_vectors.size();
+                int D = data[0].size();
+                total_flops += (long long)max_iter * n_sv * n_sv * (3 * D + 2);
+            }
+        }
+        return total_flops;
+    }
+
+    // Predict with confidence (returns label + confidence score)
+    pair<int, double> predict_one(const vector<double>& x) {
+        vector<int> votes(n_classes, 0);
+        vector<double> scores(n_classes, 0.0);
+        for (auto& model : models) {
+            auto [pred, conf] = predict_binary(model, x);
+            votes[pred]++;
+            scores[pred] += conf;
+        }
+        int best = max_element(votes.begin(), votes.end()) - votes.begin();
+        double confidence = scores[best] / max(1, votes[best]);
+        return {best, confidence};
+    }
+
+    // Predict batch - returns predictions, confidences, and FLOP count
+    struct PredResult {
+        vector<int> predictions;
+        vector<double> confidences;
+        long long flops;
+    };
+
+    PredResult predict(const vector<vector<double>>& data) {
+        PredResult result;
+        result.predictions.resize(data.size());
+        result.confidences.resize(data.size());
+        result.flops = 0;
+
+        int total_sv = 0;
+        for (auto& m : models) total_sv += m.support_vectors.size();
+        int D = data[0].size();
+
+        for (size_t i = 0; i < data.size(); i++) {
+            auto [pred, conf] = predict_one(data[i]);
+            result.predictions[i] = pred;
+            result.confidences[i] = conf;
+        }
+        // FLOPs: n_test * total_sv * (3D + 2)
+        result.flops = (long long)data.size() * total_sv * (3 * D + 2);
+        return result;
+    }
+};
+
+// ===================== DBSCAN =====================
+struct DBSCANResult {
+    vector<int> cluster_labels;  // -1 = noise
+    int n_clusters;
+    int n_noise;
+    long long flops;
+};
+
+// Compute pairwise distance matrix
+vector<vector<double>> compute_distance_matrix(const vector<vector<double>>& data, long long& flops) {
+    int N = data.size();
+    int D = data[0].size();
+    vector<vector<double>> dist(N, vector<double>(N, 0.0));
+
+    for (int i = 0; i < N; i++) {
+        for (int j = i + 1; j < N; j++) {
+            double d = euclidean_dist(data[i], data[j]);
+            dist[i][j] = d;
+            dist[j][i] = d;
+        }
+    }
+    // FLOPs: N*(N-1)/2 * 3D (sub + mul + add per feature) + sqrt
+    flops = (long long)N * (N - 1) / 2 * (3 * D + 1);
+    return dist;
+}
+
+DBSCANResult dbscan(const vector<vector<double>>& data, double eps, int min_pts) {
+    int N = data.size();
+    DBSCANResult result;
+    result.cluster_labels.assign(N, -2);  // -2 = unvisited
+    result.n_clusters = 0;
+
+    long long dist_flops = 0;
+    auto dist_matrix = compute_distance_matrix(data, dist_flops);
+    result.flops = dist_flops;
+
+    auto region_query = [&](int p) -> vector<int> {
+        vector<int> neighbors;
+        for (int i = 0; i < N; i++)
+            if (dist_matrix[p][i] <= eps) neighbors.push_back(i);
+        return neighbors;
+    };
+
+    for (int i = 0; i < N; i++) {
+        if (result.cluster_labels[i] != -2) continue;
+
+        auto neighbors = region_query(i);
+        if ((int)neighbors.size() < min_pts) {
+            result.cluster_labels[i] = -1;  // noise
+            continue;
+        }
+
+        int cluster_id = result.n_clusters++;
+        result.cluster_labels[i] = cluster_id;
+
+        vector<int> seed_set(neighbors.begin(), neighbors.end());
+        for (size_t j = 0; j < seed_set.size(); j++) {
+            int q = seed_set[j];
+            if (result.cluster_labels[q] == -1)
+                result.cluster_labels[q] = cluster_id;
+            if (result.cluster_labels[q] != -2) continue;
+
+            result.cluster_labels[q] = cluster_id;
+            auto q_neighbors = region_query(q);
+            if ((int)q_neighbors.size() >= min_pts) {
+                for (int nn : q_neighbors) {
+                    if (find(seed_set.begin(), seed_set.end(), nn) == seed_set.end())
+                        seed_set.push_back(nn);
+                }
+            }
+        }
+    }
+
+    result.n_noise = count(result.cluster_labels.begin(), result.cluster_labels.end(), -1);
+    return result;
+}
+
+// ===================== FULL PIPELINE =====================
+struct PipelineResult {
+    vector<int> final_predictions;
+    vector<int> svm_confident;
+    vector<int> uncertain_indices;
+    int n_noise;
+    double svm_time_ms;
+    double dbscan_time_ms;
+    double total_time_ms;
+    long long svm_train_flops;
+    long long svm_predict_flops;
+    long long dbscan_flops;
+    long long total_flops;
+};
+
+#endif // COMMON_H
