@@ -183,6 +183,8 @@ struct MultiClassSVM {
                     errors++;
                 }
             }
+            cout << "  SVM(" << ca << "v" << cb << ") Epoch " << (iter+1) << "/" << max_iter
+                 << " | Errors: " << errors << "/" << n << endl;
             if (errors == 0) break;
         }
         return model;
@@ -350,5 +352,106 @@ struct PipelineResult {
     long long dbscan_flops;
     long long total_flops;
 };
+
+// ===================== MODEL SAVE / LOAD =====================
+void save_svm_model(const MultiClassSVM& svm, const string& filename) {
+    ofstream f(filename);
+    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
+    f << svm.n_classes << " " << svm.gamma << " " << svm.max_iter << " " << svm.lr << "\n";
+    f << svm.models.size() << "\n";
+    for (auto& m : svm.models) {
+        f << m.class_a << " " << m.class_b << " " << m.gamma << " " << m.bias << "\n";
+        int nsv = m.support_vectors.size();
+        int D = nsv > 0 ? m.support_vectors[0].size() : 0;
+        f << nsv << " " << D << "\n";
+        for (int i = 0; i < nsv; i++) {
+            f << m.alphas[i];
+            for (int j = 0; j < D; j++) f << " " << m.support_vectors[i][j];
+            f << "\n";
+        }
+    }
+    f.close();
+    cout << "Model saved to " << filename << endl;
+}
+
+void save_predictions(const vector<int>& preds, const string& filename) {
+    ofstream f(filename);
+    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
+    for (int p : preds) f << p << "\n";
+    f.close();
+    cout << "Predictions saved to " << filename << endl;
+}
+
+void save_dbscan_model(const DBSCANResult& db, const vector<vector<double>>& data,
+                       double eps, int min_pts, const string& filename) {
+    ofstream f(filename);
+    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
+    int N = data.size();
+    int D = N > 0 ? data[0].size() : 0;
+    f << eps << " " << min_pts << "\n";
+    f << db.n_clusters << " " << db.n_noise << "\n";
+    f << N << " " << D << "\n";
+    for (int i = 0; i < N; i++) {
+        f << db.cluster_labels[i];
+        for (int j = 0; j < D; j++) f << " " << data[i][j];
+        f << "\n";
+    }
+    f.close();
+    cout << "DBSCAN model saved to " << filename << endl;
+}
+
+// ===================== MODEL LOAD =====================
+MultiClassSVM load_svm_model(const string& filename) {
+    ifstream f(filename);
+    if (!f.is_open()) { cerr << "Cannot open " << filename << endl; exit(1); }
+    MultiClassSVM svm;
+    int n_models;
+    f >> svm.n_classes >> svm.gamma >> svm.max_iter >> svm.lr;
+    f >> n_models;
+    svm.models.resize(n_models);
+    for (int k = 0; k < n_models; k++) {
+        auto& m = svm.models[k];
+        int nsv, D;
+        f >> m.class_a >> m.class_b >> m.gamma >> m.bias;
+        f >> nsv >> D;
+        m.support_vectors.resize(nsv, vector<double>(D));
+        m.alphas.resize(nsv);
+        for (int i = 0; i < nsv; i++) {
+            f >> m.alphas[i];
+            for (int j = 0; j < D; j++) f >> m.support_vectors[i][j];
+        }
+    }
+    f.close();
+    cout << "SVM model loaded from " << filename << endl;
+    return svm;
+}
+
+struct DBSCANModel {
+    double eps;
+    int min_pts;
+    int n_clusters;
+    int n_noise;
+    vector<int> cluster_labels;
+    vector<vector<double>> core_data;
+};
+
+DBSCANModel load_dbscan_model(const string& filename) {
+    ifstream f(filename);
+    if (!f.is_open()) { cerr << "Cannot open " << filename << endl; exit(1); }
+    DBSCANModel model;
+    int N, D;
+    f >> model.eps >> model.min_pts;
+    f >> model.n_clusters >> model.n_noise;
+    f >> N >> D;
+    model.cluster_labels.resize(N);
+    model.core_data.resize(N, vector<double>(D));
+    for (int i = 0; i < N; i++) {
+        f >> model.cluster_labels[i];
+        for (int j = 0; j < D; j++) f >> model.core_data[i][j];
+    }
+    f.close();
+    cout << "DBSCAN model loaded from " << filename << endl;
+    return model;
+}
 
 #endif // COMMON_H

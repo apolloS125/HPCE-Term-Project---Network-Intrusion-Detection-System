@@ -99,12 +99,17 @@ int main(int argc, char* argv[]) {
 
             // Distribute DBSCAN distance computation across processes
             // For simplicity, run on root (in production, distribute)
-            auto db = dbscan(uncertain_data, 1.5, D + 1);
+            double dbscan_eps = 1.5;
+            int dbscan_min_pts = D + 1;
+            auto db = dbscan(uncertain_data, dbscan_eps, dbscan_min_pts);
 
             dbscan_time = (MPI_Wtime() - t3) * 1000;
             total_flops += db.flops;
             cout << "DBSCAN: " << fixed << setprecision(1) << dbscan_time << " ms"
                  << " | Clusters: " << db.n_clusters << " | Noise: " << db.n_noise << endl;
+
+            // Save DBSCAN model
+            save_dbscan_model(db, uncertain_data, dbscan_eps, dbscan_min_pts, "mpi_dbscan_model.txt");
 
             for (size_t i = 0; i < uncertain_idx.size(); i++)
                 final_predictions[uncertain_idx[i]] = (db.cluster_labels[i] == -1) ? -1 : all_preds[uncertain_idx[i]];
@@ -122,6 +127,10 @@ int main(int argc, char* argv[]) {
         cout << "\nAccuracy: " << fixed << setprecision(2) << (100.0 * correct / max(1, classified)) << "%" << endl;
         print_metrics("MPI (" + to_string(size) + " processes)", total_time / 1000.0, total_flops, N_test, D);
         cout << "Timing: Train=" << fixed << setprecision(1) << svm_train_time << "ms Predict=" << svm_pred_time << "ms DBSCAN=" << dbscan_time << "ms Total=" << total_time << "ms" << endl;
+
+        // Save model and predictions
+        save_svm_model(svm, "mpi_svm_model.txt");
+        save_predictions(final_predictions, "mpi_predictions.csv");
     }
 
     MPI_Finalize();
