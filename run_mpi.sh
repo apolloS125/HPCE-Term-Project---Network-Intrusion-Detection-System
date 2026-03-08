@@ -4,7 +4,7 @@
 #SBATCH --error=mpi_ids_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=2
-#SBATCH --time=00:10:00
+#SBATCH --time=01:00:00
 #SBATCH --partition=nvidia-rtx2080
 
 module load mpi 2>/dev/null || true
