@@ -18,8 +18,8 @@ int main(int argc, char* argv[]) {
     int N_train = 0, N_test = 0, D = 0, n_classes = 0;
 
     // Subsample limit for training data to fit in memory
-    const int MAX_TRAIN = 10000;
-    const int MAX_TEST = 5000;
+    const int MAX_TRAIN = 50000;
+    const int MAX_TEST = 20000;
 
     if (rank == 0) {
         train_data = load_csv("data/train_data.csv");

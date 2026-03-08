@@ -100,8 +100,8 @@ int main(int argc, char* argv[]) {
     auto test_labels = load_labels("data/test_labels.csv");
 
     // Subsample to fit in memory
-    const int MAX_TRAIN = 10000;
-    const int MAX_TEST = 5000;
+    const int MAX_TRAIN = 50000;
+    const int MAX_TEST = 20000;
     if ((int)train_data.size() > MAX_TRAIN) {
         int step = train_data.size() / MAX_TRAIN;
         vector<vector<double>> sd; vector<int> sl;
