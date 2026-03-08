@@ -19,7 +19,8 @@ int main(int argc, char* argv[]) {
     auto test_labels = load_labels("data/test_labels.csv");
 
     int N_train = train_data.size(), N_test = test_data.size(), D = train_data[0].size();
-    if (rank == 0) cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << endl;
+    int n_classes = detect_n_classes(train_labels);
+    if (rank == 0) cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
 
     MPI_Barrier(MPI_COMM_WORLD);
     double total_start = MPI_Wtime();
@@ -27,7 +28,7 @@ int main(int argc, char* argv[]) {
 
     // ===== SVM Training (each process trains on full data - same model) =====
     double t1 = MPI_Wtime();
-    MultiClassSVM svm(5, 0.1, 50, 0.01);
+    MultiClassSVM svm(n_classes, 0.1, 50, 0.01);
     long long train_flops = svm.train(train_data, train_labels);
     double svm_train_time = (MPI_Wtime() - t1) * 1000;
     total_flops += train_flops;

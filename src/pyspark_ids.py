@@ -209,10 +209,12 @@ def run_spark_pipeline(n_workers=4):
     test_labels = np.loadtxt("data/test_labels.csv", dtype=int)
     N_test = len(test_data)
     D = train_data.shape[1]
+    n_classes = int(max(train_labels)) + 1
+    print(f"Classes: {n_classes}")
 
     # ===== Stage 2: SVM =====
     print("\n--- Stage 2: SVM Training & Prediction ---")
-    svm = SimpleSVM(n_classes=5, gamma=0.1, max_iter=50, lr=0.01)
+    svm = SimpleSVM(n_classes=n_classes, gamma=0.1, max_iter=50, lr=0.01)
 
     t2 = time.time()
     train_flops = svm.train(train_data, train_labels)
@@ -233,6 +235,7 @@ def run_spark_pipeline(n_workers=4):
 
         broadcast_model = sc.broadcast(model_data)
         broadcast_gamma = sc.broadcast(svm.gamma)
+        broadcast_n_classes = sc.broadcast(n_classes)
 
         # Create RDD of test data
         test_rdd = sc.parallelize(list(enumerate(test_data.tolist())), numSlices=n_workers)
@@ -240,7 +243,7 @@ def run_spark_pipeline(n_workers=4):
         def predict_partition(iterator):
             models = broadcast_model.value
             gamma = broadcast_gamma.value
-            n_classes = 5
+            n_classes = broadcast_n_classes.value
 
             def rbf(x, y):
                 d = np.array(x) - np.array(y)

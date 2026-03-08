@@ -53,6 +53,12 @@ struct Timer {
     double ms() { return chrono::duration<double, milli>(chrono::high_resolution_clock::now() - t).count(); }
 };
 
+int detect_n_classes(const vector<int>& labels) {
+    int max_label = 0;
+    for (int l : labels) if (l > max_label) max_label = l;
+    return max_label + 1;
+}
+
 // ===== CUDA Kernels =====
 
 // Pairwise Euclidean distance matrix (main GPU kernel)
@@ -259,7 +265,8 @@ int main() {
     auto test_labels = load_labels("data/test_labels.csv");
 
     int N_train = train_data.size(), N_test = test_data.size(), D = train_data[0].size();
-    cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << endl;
+    int n_classes = detect_n_classes(train_labels);
+    cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
 
     Timer total_timer; total_timer.start();
     long long total_flops = 0;
@@ -269,8 +276,8 @@ int main() {
     Timer t1; t1.start();
     vector<SimpleSVM> models;
     vector<pair<int,int>> class_pairs;
-    for (int i = 0; i < 5; i++) {
-        for (int j = i+1; j < 5; j++) {
+    for (int i = 0; i < n_classes; i++) {
+        for (int j = i+1; j < n_classes; j++) {
             SimpleSVM m; m.train(train_data, train_labels, i, j);
             models.push_back(m);
             class_pairs.push_back({i,j});
@@ -286,8 +293,8 @@ int main() {
     vector<double> confidences(N_test);
 
     for (int i = 0; i < N_test; i++) {
-        vector<int> votes(5, 0);
-        vector<double> scores(5, 0);
+        vector<int> votes(n_classes, 0);
+        vector<double> scores(n_classes, 0);
         for (size_t m = 0; m < models.size(); m++) {
             auto [pred, conf] = models[m].predict(test_data[i], class_pairs[m].first, class_pairs[m].second);
             votes[pred]++; scores[pred] += conf;

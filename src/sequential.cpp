@@ -14,14 +14,15 @@ int main(int argc, char* argv[]) {
     int N_train = train_data.size();
     int N_test = test_data.size();
     int D = train_data[0].size();
-    cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << endl;
+    int n_classes = detect_n_classes(train_labels);
+    cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
 
     Timer total_timer; total_timer.start();
     long long total_flops = 0;
 
     // ===== STAGE 2: SVM Classification =====
     cout << "\n--- Stage 2: SVM Training ---" << endl;
-    MultiClassSVM svm(5, 0.1, 50, 0.01);
+    MultiClassSVM svm(n_classes, 0.1, 50, 0.01);
     Timer svm_train_timer; svm_train_timer.start();
     long long train_flops = svm.train(train_data, train_labels);
     double svm_train_time = svm_train_timer.elapsed_ms();
@@ -110,12 +111,12 @@ int main(int argc, char* argv[]) {
     // Print confusion matrix for classified samples
     vector<int> cm_pred, cm_truth;
     for (int i = 0; i < N_test; i++) {
-        if (final_predictions[i] >= 0 && final_predictions[i] < 5) {
+        if (final_predictions[i] >= 0 && final_predictions[i] < n_classes) {
             cm_pred.push_back(final_predictions[i]);
             cm_truth.push_back(test_labels[i]);
         }
     }
-    if (!cm_pred.empty()) print_confusion_matrix(cm_pred, cm_truth, 5);
+    if (!cm_pred.empty()) print_confusion_matrix(cm_pred, cm_truth, n_classes);
 
     // Performance summary
     print_metrics("Sequential (Baseline)", total_time / 1000.0, total_flops, N_test, D);

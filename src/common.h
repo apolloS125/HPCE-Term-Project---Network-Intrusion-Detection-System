@@ -74,19 +74,25 @@ double accuracy(const vector<int>& pred, const vector<int>& truth) {
     return (double)correct / pred.size() * 100.0;
 }
 
+// Auto-detect number of classes from label vector
+int detect_n_classes(const vector<int>& labels) {
+    int max_label = 0;
+    for (int l : labels) if (l > max_label) max_label = l;
+    return max_label + 1;
+}
+
 void print_confusion_matrix(const vector<int>& pred, const vector<int>& truth, int n_classes) {
     vector<vector<int>> cm(n_classes, vector<int>(n_classes, 0));
     for (size_t i = 0; i < pred.size(); i++)
         if (pred[i] >= 0 && pred[i] < n_classes && truth[i] >= 0 && truth[i] < n_classes)
             cm[truth[i]][pred[i]]++;
     
-    string names[] = {"Normal", "DoS", "Probe", "R2L", "U2R"};
     cout << "Confusion Matrix (rows=actual, cols=predicted):" << endl;
     cout << setw(10) << "";
-    for (int j = 0; j < n_classes; j++) cout << setw(8) << names[j];
+    for (int j = 0; j < n_classes; j++) cout << setw(8) << ("C" + to_string(j));
     cout << endl;
     for (int i = 0; i < n_classes; i++) {
-        cout << setw(10) << names[i];
+        cout << setw(10) << ("C" + to_string(i));
         for (int j = 0; j < n_classes; j++) cout << setw(8) << cm[i][j];
         cout << endl;
     }

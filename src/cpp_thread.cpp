@@ -136,14 +136,15 @@ int main(int argc, char* argv[]) {
     auto test_labels = load_labels("data/test_labels.csv");
 
     int N_train = train_data.size(), N_test = test_data.size(), D = train_data[0].size();
-    cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << endl;
+    int n_classes = detect_n_classes(train_labels);
+    cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
 
     Timer total_timer; total_timer.start();
     long long total_flops = 0;
 
     // SVM Training (sequential - hard to parallelize SGD)
     cout << "\n--- SVM Training ---" << endl;
-    MultiClassSVM svm(5, 0.1, 50, 0.01);
+    MultiClassSVM svm(n_classes, 0.1, 50, 0.01);
     Timer t1; t1.start();
     long long train_flops = svm.train(train_data, train_labels);
     double svm_train_time = t1.elapsed_ms();

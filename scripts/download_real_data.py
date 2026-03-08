@@ -26,6 +26,8 @@ import urllib.request
 import gzip
 import shutil
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+import kagglehub
+from kagglehub import KaggleDatasetAdapter
 
 # ===================== KDD CUP 99 =====================
 KDD_COLUMNS = [
@@ -188,66 +190,23 @@ def download_kdd(use_full=False):
 
 
 def download_cicids():
-    """Download and preprocess CICIDS2017 dataset."""
+    """Download and preprocess CICIDS2017 dataset using kagglehub."""
     print("\n" + "="*60)
-    print("  CICIDS2017 Dataset")
+    print("  CICIDS2017 Dataset (cleaned & preprocessed via kagglehub)")
     print("="*60)
     
     os.makedirs("data/cicids", exist_ok=True)
     
-    # CICIDS2017 CSV files from UNB (hosted on various mirrors)
-    # Using the CIC mirror / Kaggle-compatible format
-    CICIDS_URLS = {
-        "Monday": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Monday-WorkingHours.pcap_ISCX.csv",
-        "Tuesday": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Tuesday-WorkingHours.pcap_ISCX.csv",
-        "Wednesday": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Wednesday-workingHours.pcap_ISCX.csv",
-        "Thursday-Morning": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-        "Thursday-Afternoon": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
-        "Friday-Morning": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Friday-WorkingHours-Morning.pcap_ISCX.csv",
-        "Friday-Afternoon-PortScan": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
-        "Friday-Afternoon-DDos": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/GeneratedLabelledFlows/TrafficLabelling/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
-    }
-    
-    print(f"  CICIDS2017 has {len(CICIDS_URLS)} CSV files (~6.4GB total)")
-    print("  NOTE: Download may take 10-30 minutes depending on connection")
-    print("  TIP: If download fails, you can manually download from:")
-    print("       https://www.unb.ca/cic/datasets/ids-2017.html")
-    print("       or Kaggle: https://www.kaggle.com/datasets/cicdataset/cicids2017")
+    print("  Loading dataset from Kaggle via kagglehub...")
+    print("  Dataset: ericanacletoribeiro/cicids2017-cleaned-and-preprocessed")
     print()
     
-    all_dfs = []
+    df = kagglehub.load_dataset(
+        KaggleDatasetAdapter.PANDAS,
+        "ericanacletoribeiro/cicids2017-cleaned-and-preprocessed",
+        "",
+    )
     
-    for day_name, url in CICIDS_URLS.items():
-        csv_file = f"data/cicids/{day_name}.csv"
-        
-        try:
-            download_file(url, csv_file)
-            
-            print(f"  Loading {day_name}...")
-            # CICIDS has some encoding issues, handle them
-            df = pd.read_csv(csv_file, encoding='utf-8', low_memory=False)
-            
-            # Clean column names (strip whitespace)
-            df.columns = df.columns.str.strip()
-            
-            print(f"    {len(df)} records loaded")
-            all_dfs.append(df)
-            
-        except Exception as e:
-            print(f"  WARNING: Failed to download {day_name}: {e}")
-            print(f"  Skipping this file. Download manually if needed.")
-            continue
-    
-    if not all_dfs:
-        print("\n  ERROR: No CICIDS files could be downloaded.")
-        print("  Please download manually from:")
-        print("  https://www.kaggle.com/datasets/cicdataset/cicids2017")
-        print("  Place CSV files in data/cicids/ and run again.")
-        return None, None, None, None
-    
-    # Combine all days
-    print(f"\n  Combining {len(all_dfs)} files...")
-    df = pd.concat(all_dfs, ignore_index=True)
     print(f"  Total records: {len(df)}")
     
     # Clean data
@@ -327,13 +286,18 @@ def download_cicids():
     np.savetxt("data/cicids/test_data.csv", test_X, delimiter=",", fmt="%.8f")
     np.savetxt("data/cicids/test_labels.csv", test_y, delimiter=",", fmt="%d")
     
-    print(f"\n  Done! Train: {len(train_X)} | Test: {len(test_X)} | Features: {X.shape[1]}")
+    print(f"\n  Done! Train: {len(train_X)} | Test: {len(test_X)} | Features: {X.shape[1]} | Classes: {len(le.classes_)}")
     print(f"  Files saved to data/cicids/")
     
     # Save label mapping
     with open("data/cicids/label_mapping.txt", "w") as f:
         for i, name in enumerate(le.classes_):
             f.write(f"{i}: {name}\n")
+    
+    # Also copy to data/ root for default usage
+    for f in ['train_data.csv', 'train_labels.csv', 'test_data.csv', 'test_labels.csv']:
+        shutil.copy(f"data/cicids/{f}", f"data/{f}")
+    print("  Also copied to data/ (default location)")
     
     return train_X, train_y, test_X, test_y
 
