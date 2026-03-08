@@ -37,7 +37,7 @@ def download_cicids():
     df = kagglehub.load_dataset(
         KaggleDatasetAdapter.PANDAS,
         "ericanacletoribeiro/cicids2017-cleaned-and-preprocessed",
-        "",
+        "cicids2017_cleaned.csv",
     )
 
     print(f"  Total records: {len(df)}")
@@ -45,10 +45,11 @@ def download_cicids():
     # Clean data
     print("  Cleaning data...")
 
-    # Get label column (might be ' Label' or 'Label')
+    # Get label column (could be 'Label', 'Attack Type', etc.)
     label_col = None
     for col in df.columns:
-        if 'label' in col.lower():
+        col_lower = col.strip().lower()
+        if col_lower in ('label', 'attack type', 'attack_type', 'class'):
             label_col = col
             break
 
