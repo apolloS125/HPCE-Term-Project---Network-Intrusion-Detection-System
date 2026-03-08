@@ -167,10 +167,15 @@ int main(int argc, char* argv[]) {
     double dbscan_time = 0;
     if (uncertain_data.size() > 1) {
         Timer t3; t3.start();
-        auto db = omp_dbscan(uncertain_data, 1.5, D + 1);
+        double dbscan_eps = 1.5;
+        int dbscan_min_pts = D + 1;
+        auto db = omp_dbscan(uncertain_data, dbscan_eps, dbscan_min_pts);
         dbscan_time = t3.elapsed_ms();
         total_flops += db.flops;
         cout << "DBSCAN: " << fixed << setprecision(1) << dbscan_time << " ms | Clusters: " << db.n_clusters << " | Noise: " << db.n_noise << endl;
+
+        save_dbscan_model(db, uncertain_data, dbscan_eps, dbscan_min_pts, "openmp_dbscan_model.txt");
+
         for (size_t i = 0; i < uncertain_idx.size(); i++)
             final_predictions[uncertain_idx[i]] = (db.cluster_labels[i] == -1) ? -1 : pred_result.predictions[uncertain_idx[i]];
     }
@@ -185,5 +190,9 @@ int main(int argc, char* argv[]) {
 
     print_metrics("OpenMP (" + to_string(NUM_THREADS) + " threads)", total_time / 1000.0, total_flops, N_test, D);
     cout << "Timing: Train=" << fixed << setprecision(1) << svm_train_time << "ms Predict=" << svm_pred_time << "ms DBSCAN=" << dbscan_time << "ms Total=" << total_time << "ms" << endl;
+
+    save_svm_model(svm, "openmp_svm_model.txt");
+    save_predictions(final_predictions, "openmp_predictions.csv");
+
     return 0;
 }
