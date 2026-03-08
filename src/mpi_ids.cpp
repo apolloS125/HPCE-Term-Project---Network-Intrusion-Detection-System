@@ -12,15 +12,98 @@ int main(int argc, char* argv[]) {
 
     if (rank == 0) cout << "=== Network IDS: MPI (" << size << " processes) ===" << endl;
 
-    // All processes load data (simplified - in production use MPI I/O)
-    auto train_data = load_csv("data/train_data.csv");
-    auto train_labels = load_labels("data/train_labels.csv");
-    auto test_data = load_csv("data/test_data.csv");
-    auto test_labels = load_labels("data/test_labels.csv");
+    // Rank 0 loads data, then broadcasts dimensions and flat arrays
+    vector<vector<double>> train_data, test_data;
+    vector<int> train_labels, test_labels;
+    int N_train = 0, N_test = 0, D = 0, n_classes = 0;
 
-    int N_train = train_data.size(), N_test = test_data.size(), D = train_data[0].size();
-    int n_classes = detect_n_classes(train_labels);
-    if (rank == 0) cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
+    // Subsample limit for training data to fit in memory
+    const int MAX_TRAIN = 10000;
+    const int MAX_TEST = 5000;
+
+    if (rank == 0) {
+        train_data = load_csv("data/train_data.csv");
+        train_labels = load_labels("data/train_labels.csv");
+        test_data = load_csv("data/test_data.csv");
+        test_labels = load_labels("data/test_labels.csv");
+
+        D = train_data[0].size();
+        n_classes = detect_n_classes(train_labels);
+
+        // Subsample training data if too large
+        if ((int)train_data.size() > MAX_TRAIN) {
+            int step = train_data.size() / MAX_TRAIN;
+            vector<vector<double>> sampled_data;
+            vector<int> sampled_labels;
+            for (int i = 0; i < MAX_TRAIN; i++) {
+                sampled_data.push_back(train_data[i * step]);
+                sampled_labels.push_back(train_labels[i * step]);
+            }
+            train_data = sampled_data;
+            train_labels = sampled_labels;
+        }
+        // Subsample test data if too large
+        if ((int)test_data.size() > MAX_TEST) {
+            int step = test_data.size() / MAX_TEST;
+            vector<vector<double>> sampled_data;
+            vector<int> sampled_labels;
+            for (int i = 0; i < MAX_TEST; i++) {
+                sampled_data.push_back(test_data[i * step]);
+                sampled_labels.push_back(test_labels[i * step]);
+            }
+            test_data = sampled_data;
+            test_labels = sampled_labels;
+        }
+
+        N_train = train_data.size();
+        N_test = test_data.size();
+        cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
+    }
+
+    // Broadcast dimensions
+    MPI_Bcast(&N_train, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&N_test, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&D, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&n_classes, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Flatten and broadcast train data
+    vector<double> flat_train(N_train * D);
+    if (rank == 0)
+        for (int i = 0; i < N_train; i++)
+            for (int j = 0; j < D; j++)
+                flat_train[i * D + j] = train_data[i][j];
+    MPI_Bcast(flat_train.data(), N_train * D, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // Broadcast train labels
+    if (rank != 0) train_labels.resize(N_train);
+    MPI_Bcast(train_labels.data(), N_train, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Flatten and broadcast test data
+    vector<double> flat_test(N_test * D);
+    if (rank == 0)
+        for (int i = 0; i < N_test; i++)
+            for (int j = 0; j < D; j++)
+                flat_test[i * D + j] = test_data[i][j];
+    MPI_Bcast(flat_test.data(), N_test * D, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // Broadcast test labels
+    if (rank != 0) test_labels.resize(N_test);
+    MPI_Bcast(test_labels.data(), N_test, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Reconstruct 2D vectors on non-root ranks
+    if (rank != 0) {
+        train_data.resize(N_train, vector<double>(D));
+        for (int i = 0; i < N_train; i++)
+            for (int j = 0; j < D; j++)
+                train_data[i][j] = flat_train[i * D + j];
+        test_data.resize(N_test, vector<double>(D));
+        for (int i = 0; i < N_test; i++)
+            for (int j = 0; j < D; j++)
+                test_data[i][j] = flat_test[i * D + j];
+    }
+    // Free flat arrays
+    flat_train.clear(); flat_train.shrink_to_fit();
+    flat_test.clear(); flat_test.shrink_to_fit();
 
     MPI_Barrier(MPI_COMM_WORLD);
     double total_start = MPI_Wtime();
