@@ -152,6 +152,17 @@ struct MultiClassSVM {
         for (size_t i = 0; i < labels.size(); i++)
             if (labels[i] == ca || labels[i] == cb) indices.push_back(i);
 
+        // Subsample if too many samples (limit to 500 per class pair)
+        int max_samples = 500;
+        if ((int)indices.size() > max_samples) {
+            // Deterministic shuffle using simple stride sampling
+            vector<int> sampled;
+            int step = indices.size() / max_samples;
+            for (int i = 0; i < max_samples; i++)
+                sampled.push_back(indices[i * step]);
+            indices = sampled;
+        }
+
         int n = indices.size();
         if (n == 0) return model;
 
@@ -166,15 +177,25 @@ struct MultiClassSVM {
             y[i] = (labels[indices[i]] == ca) ? 1.0 : -1.0;
         }
 
-        // Training loop (simplified kernel perceptron)
+        // Pre-compute kernel matrix to avoid redundant O(D) computations
+        vector<vector<double>> K(n, vector<double>(n));
+        for (int i = 0; i < n; i++) {
+            K[i][i] = 1.0;  // rbf_kernel(x, x) = exp(0) = 1
+            for (int j = i + 1; j < n; j++) {
+                double k = rbf_kernel(model.support_vectors[i], model.support_vectors[j], gamma);
+                K[i][j] = k;
+                K[j][i] = k;
+            }
+        }
+
+        // Training loop (simplified kernel perceptron) - now O(n^2) per epoch
         for (int iter = 0; iter < max_iter; iter++) {
             int errors = 0;
             for (int i = 0; i < n; i++) {
                 double score = model.bias;
                 for (int j = 0; j < n; j++) {
                     if (model.alphas[j] != 0.0) {
-                        score += model.alphas[j] * rbf_kernel(model.support_vectors[j],
-                                                               model.support_vectors[i], gamma);
+                        score += model.alphas[j] * K[j][i];
                     }
                 }
                 if (y[i] * score <= 0) {  // misclassified
