@@ -749,10 +749,11 @@ Train: 50000 | Test: 20000 | Features: 52 | Classes: 7
   SVM(5v6) Epoch 48/50 | Errors: 6/500
   SVM(5v6) Epoch 49/50 | Errors: 4/500
   SVM(5v6) Epoch 50/50 | Errors: 6/500
-SVM training: 273.3 ms
-SVM prediction: 249.4 ms
+SVM training: 273.7 ms
+SVM prediction: 245.4 ms
 Confident: 18000 | Uncertain: 2000
-DBSCAN: 905.2 ms | Clusters: 1 | Noise: 3
+DBSCAN: 904.6 ms | Clusters: 1 | Noise: 3
+DBSCAN model saved to openmp_dbscan_model.txt
 
 Accuracy: 90.88%
 
@@ -760,9 +761,11 @@ Accuracy: 90.88%
   Technique:  OpenMP (8 threads)
   Samples:    20000
   Features:   52
-  Time:       1430.833 ms
+  Time:       1460.286 ms
   FLOP Count: 66794586600
-  GFLOPS:     46.6823
+  GFLOPS:     45.7407
 ========================================
 
-Timing: Train=273.3ms Predict=249.4ms DBSCAN=905.2ms Total=1430.8ms
+Timing: Train=273.7ms Predict=245.4ms DBSCAN=904.6ms Total=1460.3ms
+Model saved to openmp_svm_model.txt
+Predictions saved to openmp_predictions.csv
