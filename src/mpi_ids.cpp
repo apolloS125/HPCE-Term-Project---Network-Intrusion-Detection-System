@@ -161,7 +161,7 @@ int main(int argc, char* argv[]) {
 
     if (rank == 0) {
         final_predictions.resize(N_test);
-        double threshold = 0.3;
+        double threshold = 0.05;
         vector<int> uncertain_idx;
         vector<vector<double>> uncertain_data;
 
@@ -173,6 +173,16 @@ int main(int argc, char* argv[]) {
                 uncertain_idx.push_back(i);
                 uncertain_data.push_back(test_data[i]);
             }
+        }
+
+        // Cap DBSCAN input to avoid O(n^2) blowup
+        const int MAX_DBSCAN = 2000;
+        if ((int)uncertain_data.size() > MAX_DBSCAN) {
+            uncertain_idx.resize(MAX_DBSCAN);
+            uncertain_data.resize(MAX_DBSCAN);
+            // Mark the rest as SVM prediction (fallback)
+            for (int i = MAX_DBSCAN; i < N_test; i++)
+                if (final_predictions[i] == -1) final_predictions[i] = all_preds[i];
         }
         cout << "Confident: " << (N_test - (int)uncertain_idx.size())
              << " | Uncertain: " << uncertain_idx.size() << endl;
