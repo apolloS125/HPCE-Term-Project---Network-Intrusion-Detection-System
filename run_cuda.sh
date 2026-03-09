@@ -4,7 +4,6 @@
 #SBATCH --error=cuda_ids_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:1
 #SBATCH --partition=nvidia-rtx2080
 #SBATCH --time=01:00:00
 
