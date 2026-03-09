@@ -136,8 +136,8 @@ int main(int argc, char* argv[]) {
     auto test_labels = load_labels("data/test_labels.csv");
 
     // Subsample to fit in memory
-    const int MAX_TRAIN = 50000;
-    const int MAX_TEST = 20000;
+    const int MAX_TRAIN = 200000;
+    const int MAX_TEST = 100000;
     if ((int)train_data.size() > MAX_TRAIN) {
         int step = train_data.size() / MAX_TRAIN;
         vector<vector<double>> sd; vector<int> sl;
@@ -160,7 +160,7 @@ int main(int argc, char* argv[]) {
 
     // SVM Training (sequential - hard to parallelize SGD)
     cout << "\n--- SVM Training ---" << endl;
-    MultiClassSVM svm(n_classes, 0.1, 50, 0.01);
+    MultiClassSVM svm(n_classes, 0.1, 200, 0.01);
     Timer t1; t1.start();
     long long train_flops = svm.train(train_data, train_labels);
     double svm_train_time = t1.elapsed_ms();

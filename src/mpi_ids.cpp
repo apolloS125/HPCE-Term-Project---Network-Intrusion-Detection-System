@@ -18,8 +18,8 @@ int main(int argc, char* argv[]) {
     int N_train = 0, N_test = 0, D = 0, n_classes = 0;
 
     // Subsample limit for training data to fit in memory
-    const int MAX_TRAIN = 50000;
-    const int MAX_TEST = 20000;
+    const int MAX_TRAIN = 100000;
+    const int MAX_TEST = 50000;
 
     if (rank == 0) {
         train_data = load_csv("data/train_data.csv");
@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
 
     // ===== SVM Training (each process trains on full data - same model) =====
     double t1 = MPI_Wtime();
-    MultiClassSVM svm(n_classes, 0.1, 50, 0.01);
+    MultiClassSVM svm(n_classes, 0.1, 200, 0.01);
     long long train_flops = svm.train(train_data, train_labels);
     double svm_train_time = (MPI_Wtime() - t1) * 1000;
     total_flops += train_flops;

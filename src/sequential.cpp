@@ -11,6 +11,22 @@ int main(int argc, char* argv[]) {
     auto test_data = load_csv("data/test_data.csv");
     auto test_labels = load_labels("data/test_labels.csv");
 
+    // Subsample to fit in memory
+    const int MAX_TRAIN = 200000;
+    const int MAX_TEST = 100000;
+    if ((int)train_data.size() > MAX_TRAIN) {
+        int step = train_data.size() / MAX_TRAIN;
+        vector<vector<double>> sd; vector<int> sl;
+        for (int i = 0; i < MAX_TRAIN; i++) { sd.push_back(train_data[i * step]); sl.push_back(train_labels[i * step]); }
+        train_data = sd; train_labels = sl;
+    }
+    if ((int)test_data.size() > MAX_TEST) {
+        int step = test_data.size() / MAX_TEST;
+        vector<vector<double>> sd; vector<int> sl;
+        for (int i = 0; i < MAX_TEST; i++) { sd.push_back(test_data[i * step]); sl.push_back(test_labels[i * step]); }
+        test_data = sd; test_labels = sl;
+    }
+
     int N_train = train_data.size();
     int N_test = test_data.size();
     int D = train_data[0].size();
@@ -22,7 +38,7 @@ int main(int argc, char* argv[]) {
 
     // ===== STAGE 2: SVM Classification =====
     cout << "\n--- Stage 2: SVM Training ---" << endl;
-    MultiClassSVM svm(n_classes, 0.1, 50, 0.01);
+    MultiClassSVM svm(n_classes, 0.1, 200, 0.01);
     Timer svm_train_timer; svm_train_timer.start();
     long long train_flops = svm.train(train_data, train_labels);
     double svm_train_time = svm_train_timer.elapsed_ms();
@@ -37,7 +53,7 @@ int main(int argc, char* argv[]) {
     cout << "SVM prediction: " << fixed << setprecision(1) << svm_pred_time << " ms" << endl;
 
     // Split confident vs uncertain
-    double confidence_threshold = 0.3;
+    double confidence_threshold = 0.05;
     vector<int> final_predictions(N_test);
     vector<int> uncertain_indices;
     vector<vector<double>> uncertain_data;
@@ -56,6 +72,15 @@ int main(int argc, char* argv[]) {
     cout << "Confident: " << confident_count << " (" 
          << fixed << setprecision(1) << (100.0 * confident_count / N_test) << "%)" << endl;
     cout << "Uncertain: " << uncertain_indices.size() << " -> sending to DBSCAN" << endl;
+
+    // Cap DBSCAN input to avoid O(n^2) blowup
+    const int MAX_DBSCAN = 2000;
+    if ((int)uncertain_data.size() > MAX_DBSCAN) {
+        for (size_t i = MAX_DBSCAN; i < uncertain_indices.size(); i++)
+            final_predictions[uncertain_indices[i]] = pred_result.predictions[uncertain_indices[i]];
+        uncertain_indices.resize(MAX_DBSCAN);
+        uncertain_data.resize(MAX_DBSCAN);
+    }
 
     // ===== STAGE 3: DBSCAN on uncertain data =====
     int n_noise = 0;
@@ -126,6 +151,9 @@ int main(int argc, char* argv[]) {
     cout << "  SVM Predict: " << fixed << setprecision(1) << svm_pred_time << " ms" << endl;
     cout << "  DBSCAN:      " << fixed << setprecision(1) << dbscan_time << " ms" << endl;
     cout << "  Total:       " << fixed << setprecision(1) << total_time << " ms" << endl;
+
+    save_svm_model(svm, "seq_svm_model.txt");
+    save_predictions(final_predictions, "seq_predictions.csv");
 
     return 0;
 }
