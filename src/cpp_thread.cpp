@@ -135,6 +135,22 @@ int main(int argc, char* argv[]) {
     auto test_data = load_csv("data/test_data.csv");
     auto test_labels = load_labels("data/test_labels.csv");
 
+    // Subsample to fit in memory
+    const int MAX_TRAIN = 50000;
+    const int MAX_TEST = 20000;
+    if ((int)train_data.size() > MAX_TRAIN) {
+        int step = train_data.size() / MAX_TRAIN;
+        vector<vector<double>> sd; vector<int> sl;
+        for (int i = 0; i < MAX_TRAIN; i++) { sd.push_back(train_data[i * step]); sl.push_back(train_labels[i * step]); }
+        train_data = sd; train_labels = sl;
+    }
+    if ((int)test_data.size() > MAX_TEST) {
+        int step = test_data.size() / MAX_TEST;
+        vector<vector<double>> sd; vector<int> sl;
+        for (int i = 0; i < MAX_TEST; i++) { sd.push_back(test_data[i * step]); sl.push_back(test_labels[i * step]); }
+        test_data = sd; test_labels = sl;
+    }
+
     int N_train = train_data.size(), N_test = test_data.size(), D = train_data[0].size();
     int n_classes = detect_n_classes(train_labels);
     cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
@@ -160,7 +176,7 @@ int main(int argc, char* argv[]) {
     cout << "SVM prediction: " << fixed << setprecision(1) << svm_pred_time << " ms" << endl;
 
     // Split confident vs uncertain
-    double confidence_threshold = 0.3;
+    double confidence_threshold = 0.05;
     vector<int> final_predictions(N_test);
     vector<int> uncertain_indices;
     vector<vector<double>> uncertain_data;
@@ -176,6 +192,15 @@ int main(int argc, char* argv[]) {
             uncertain_data.push_back(test_data[i]);
         }
     }
+
+    // Cap DBSCAN input to avoid O(n^2) blowup
+    const int MAX_DBSCAN = 2000;
+    if ((int)uncertain_data.size() > MAX_DBSCAN) {
+        for (size_t i = MAX_DBSCAN; i < uncertain_indices.size(); i++)
+            final_predictions[uncertain_indices[i]] = pred_result.predictions[uncertain_indices[i]];
+        uncertain_indices.resize(MAX_DBSCAN);
+        uncertain_data.resize(MAX_DBSCAN);
+    }
     cout << "Confident: " << confident_count << " | Uncertain: " << uncertain_indices.size() << endl;
 
     // DBSCAN (parallel distance matrix)
@@ -184,12 +209,16 @@ int main(int argc, char* argv[]) {
     if (!uncertain_data.empty() && uncertain_data.size() > 1) {
         cout << "\n--- DBSCAN (parallel distance matrix) ---" << endl;
         Timer t3; t3.start();
-        auto dbscan_result = parallel_dbscan(uncertain_data, 1.5, D + 1);
+        double dbscan_eps = 1.5;
+        int dbscan_min_pts = D + 1;
+        auto dbscan_result = parallel_dbscan(uncertain_data, dbscan_eps, dbscan_min_pts);
         dbscan_time = t3.elapsed_ms();
         total_flops += dbscan_result.flops;
         n_noise = dbscan_result.n_noise;
         cout << "DBSCAN: " << fixed << setprecision(1) << dbscan_time << " ms" << endl;
         cout << "Clusters: " << dbscan_result.n_clusters << " | Noise: " << n_noise << endl;
+
+        save_dbscan_model(dbscan_result, uncertain_data, dbscan_eps, dbscan_min_pts, "thread_dbscan_model.txt");
 
         for (size_t i = 0; i < uncertain_indices.size(); i++) {
             int idx = uncertain_indices[i];
@@ -219,6 +248,9 @@ int main(int argc, char* argv[]) {
     cout << "  SVM Predict: " << fixed << setprecision(1) << svm_pred_time << " ms" << endl;
     cout << "  DBSCAN:      " << fixed << setprecision(1) << dbscan_time << " ms" << endl;
     cout << "  Total:       " << fixed << setprecision(1) << total_time << " ms" << endl;
+
+    save_svm_model(svm, "thread_svm_model.txt");
+    save_predictions(final_predictions, "thread_predictions.csv");
 
     return 0;
 }
