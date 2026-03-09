@@ -152,8 +152,8 @@ struct MultiClassSVM {
         for (size_t i = 0; i < labels.size(); i++)
             if (labels[i] == ca || labels[i] == cb) indices.push_back(i);
 
-        // Subsample if too many samples (limit to 5000 per class pair)
-        int max_samples = 5000;
+        // Subsample if too many samples (limit to 10000 per class pair)
+        int max_samples = 10000;
         if ((int)indices.size() > max_samples) {
             // Deterministic shuffle using simple stride sampling
             vector<int> sampled;

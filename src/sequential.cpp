@@ -11,22 +11,6 @@ int main(int argc, char* argv[]) {
     auto test_data = load_csv("data/test_data.csv");
     auto test_labels = load_labels("data/test_labels.csv");
 
-    // Subsample to fit in memory
-    const int MAX_TRAIN = 200000;
-    const int MAX_TEST = 100000;
-    if ((int)train_data.size() > MAX_TRAIN) {
-        int step = train_data.size() / MAX_TRAIN;
-        vector<vector<double>> sd; vector<int> sl;
-        for (int i = 0; i < MAX_TRAIN; i++) { sd.push_back(train_data[i * step]); sl.push_back(train_labels[i * step]); }
-        train_data = sd; train_labels = sl;
-    }
-    if ((int)test_data.size() > MAX_TEST) {
-        int step = test_data.size() / MAX_TEST;
-        vector<vector<double>> sd; vector<int> sl;
-        for (int i = 0; i < MAX_TEST; i++) { sd.push_back(test_data[i * step]); sl.push_back(test_labels[i * step]); }
-        test_data = sd; test_labels = sl;
-    }
-
     int N_train = train_data.size();
     int N_test = test_data.size();
     int D = train_data[0].size();
