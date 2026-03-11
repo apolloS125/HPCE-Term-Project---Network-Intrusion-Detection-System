@@ -58,8 +58,8 @@ class SimpleSVM:
         labels = np.array(labels)
         flops = 0
         D = X.shape[1]
-        # kernel matrix: max_samples^2 * 8 bytes on driver RAM
-        # 5000^2 * 8 = 200MB per pair — safe on 8GB master
+
+        # With 1.76M samples, kernel matrix 5K^2 * 8B = 200MB per pair — keep cap
         max_samples = 5000
 
         for i in range(self.n_classes):
@@ -71,7 +71,7 @@ class SimpleSVM:
                 X_sub = X[mask]
                 y_sub = np.where(labels[mask] == i, 1.0, -1.0)
 
-                # Subsample if too many
+                # Subsample support vectors only (not test/inference data)
                 if len(X_sub) > max_samples:
                     step = len(X_sub) // max_samples
                     idx = np.arange(0, len(X_sub), step)[:max_samples]
@@ -100,7 +100,6 @@ def dbscan_numpy(data, eps=1.5, min_pts=35):
         db = DBSCAN(eps=eps, min_samples=min_pts).fit(data)
         labels = db.labels_
     except ImportError:
-        # Fallback: mark all as noise
         labels = np.full(len(data), -1)
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     n_noise = int(np.sum(labels == -1))
@@ -133,38 +132,25 @@ def save_dbscan_model(labels, data, eps, min_pts, filename):
 
 # ===================== MAIN PIPELINE =====================
 def run_spark_pipeline(n_workers=4):
-    # Hardware: master 8GB RAM, 6 cores; 3 workers x 4GB RAM x 2 cores
-    # Spark config tuned accordingly
-    print(f"=== Network IDS: PySpark ({n_workers} Workers) ===")
+    print(f"=== Network IDS: PySpark ({n_workers} Workers) — FULL DATA ===")
     total_start = time.time()
 
-    # Stage 1: Load Data (NumPy - faster than Spark CSV for single-node)
+    # Stage 1: Load Full Data
     print("\n--- Loading Data ---")
     train_data   = load_csv("/root/HPCE-Term-Project---Network-Intrusion-Detection-System/scripts/data/train_data.csv")
     train_labels = load_labels("/root/HPCE-Term-Project---Network-Intrusion-Detection-System/scripts/data/train_labels.csv")
     test_data    = load_csv("/root/HPCE-Term-Project---Network-Intrusion-Detection-System/scripts/data/test_data.csv")
     test_labels  = load_labels("/root/HPCE-Term-Project---Network-Intrusion-Detection-System/scripts/data/test_labels.csv")
 
-    # Subsample — local[6] runs on master (8GB RAM)
-    # Full data: 1.76M train (733MB) + 756K test (315MB) = ~1GB raw
-    # Kernel matrix: 5K^2*8 = 200MB per pair (sequential) → OK
-    # Match OpenMP/Thread for fair comparison
-    MAX_TRAIN, MAX_TEST = 200000, 100000
-    if len(train_data) > MAX_TRAIN:
-        step = len(train_data) // MAX_TRAIN
-        idx = np.arange(0, len(train_data), step)[:MAX_TRAIN]
-        train_data, train_labels = train_data[idx], train_labels[idx]
-    if len(test_data) > MAX_TEST:
-        step = len(test_data) // MAX_TEST
-        idx = np.arange(0, len(test_data), step)[:MAX_TEST]
-        test_data, test_labels = test_data[idx], test_labels[idx]
-
+    # NO subsampling — use full 1.76M train / 756K test
     N_train, D = train_data.shape
     N_test = len(test_data)
     n_classes = int(np.max(train_labels)) + 1
     print(f"Train: {N_train} | Test: {N_test} | Features: {D} | Classes: {n_classes}")
 
     # Stage 2: Train SVM on Driver (vectorized numpy)
+    # Note: SVM binary subsamples to 5K support vectors per pair to keep
+    # kernel matrix ≤ 200MB (5K^2 * 8B). Full train data feeds class distribution.
     print("\n--- SVM Training ---")
     svm = SimpleSVM(n_classes=n_classes, gamma=0.1, max_iter=200, lr=0.01)
     t_train = time.time()
@@ -173,22 +159,18 @@ def run_spark_pipeline(n_workers=4):
     print(f"SVM training: {svm_train_time*1000:.1f} ms")
 
     # Stage 3: Distributed Prediction via Spark
+    # Tuned for: master 8GB/6-core + 3 workers x 4GB/2-core
+    # Increase partitions to 60 to spread 756K test samples (12.6K per partition)
     print("\n--- SVM Prediction (Distributed) ---")
-    # Hardware: master 8GB/6-core; 3 workers x 4GB/2-core
-    # local[6]: use all 6 worker cores (2 core x 3 workers)
-    # spark.driver.memory = 5g: 8GB - 3GB OS/JVM overhead
-    # spark.executor.memory = 3g: 4GB/worker - 1GB overhead
-    # spark.executor.cores = 2: match worker core count
-    # For real standalone cluster, replace local[6] with spark://MASTER_HOST:7077
-    
     spark = SparkSession.builder \
         .appName("NetworkIDS") \
         .master("spark://Spark-Master:7077") \
-        .config("spark.driver.memory", "8g") \
+        .config("spark.driver.memory", "10g") \
         .config("spark.executor.memory", "4g") \
         .config("spark.executor.cores", "2") \
         .config("spark.cores.max", "6") \
-        .config("spark.sql.shuffle.partitions", "12") \
+        .config("spark.sql.shuffle.partitions", "60") \
+        .config("spark.default.parallelism", "60") \
         .getOrCreate()
 
     spark.sparkContext.setLogLevel("ERROR")
@@ -199,7 +181,8 @@ def run_spark_pipeline(n_workers=4):
     b_gamma = sc.broadcast(float(svm.gamma))
     b_nclasses = sc.broadcast(n_classes)
 
-    test_rdd = sc.parallelize(list(enumerate(test_data.tolist())), numSlices=12)
+    # Use 60 partitions for 756K samples (~12.6K per partition)
+    test_rdd = sc.parallelize(list(enumerate(test_data.tolist())), numSlices=60)
 
     def predict_partition(iterator):
         import numpy as _np
