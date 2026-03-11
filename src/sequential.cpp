@@ -138,6 +138,10 @@ int main(int argc, char* argv[]) {
 
     save_svm_model(svm, "seq_svm_model.txt");
     save_predictions(final_predictions, "seq_predictions.csv");
+    save_epoch_errors(svm, "seq_epoch_errors.csv");
+    double train_acc_seq = compute_train_accuracy(svm, train_data, train_labels);
+    cout << "Train Accuracy: " << fixed << setprecision(2) << train_acc_seq << "%" << endl;
+    { ofstream fa("seq_accuracy.csv"); fa << fixed << setprecision(4) << train_acc_seq << "," << acc << "\n"; }
 
     return 0;
 }
