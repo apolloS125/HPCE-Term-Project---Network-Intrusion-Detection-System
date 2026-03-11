@@ -235,6 +235,10 @@ int main(int argc, char* argv[]) {
 
     save_svm_model(svm, "thread_svm_model.txt");
     save_predictions(final_predictions, "thread_predictions.csv");
+    save_epoch_errors(svm, "thread_epoch_errors.csv");
+    double train_acc_thr = compute_train_accuracy(svm, train_data, train_labels);
+    cout << "Train Accuracy: " << fixed << setprecision(2) << train_acc_thr << "%" << endl;
+    { ofstream fa("thread_accuracy.csv"); fa << fixed << setprecision(4) << train_acc_thr << "," << acc << "\n"; }
 
     return 0;
 }

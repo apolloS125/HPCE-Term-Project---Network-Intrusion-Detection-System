@@ -224,6 +224,11 @@ int main(int argc, char* argv[]) {
         // Save model and predictions
         save_svm_model(svm, "mpi_svm_model.txt");
         save_predictions(final_predictions, "mpi_predictions.csv");
+        save_epoch_errors(svm, "mpi_epoch_errors.csv");
+        double train_acc_mpi = compute_train_accuracy(svm, train_data, train_labels);
+        double test_acc_mpi = 100.0 * correct / max(1, classified);
+        cout << "Train Accuracy: " << fixed << setprecision(2) << train_acc_mpi << "%" << endl;
+        { ofstream fa("mpi_accuracy.csv"); fa << fixed << setprecision(4) << train_acc_mpi << "," << test_acc_mpi << "\n"; }
     }
 
     MPI_Finalize();

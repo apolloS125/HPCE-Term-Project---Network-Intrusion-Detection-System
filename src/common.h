@@ -127,6 +127,10 @@ struct SVMModel {
     double bias;
     double gamma;
     int class_a, class_b;
+    vector<int> epoch_errors;
+    vector<int> val_epoch_errors;
+    int n_samples = 0;
+    int n_val_samples = 0;
 };
 
 struct MultiClassSVM {
@@ -140,6 +144,7 @@ struct MultiClassSVM {
         : n_classes(nc), gamma(g), max_iter(mi), lr(learning_rate) {}
 
     // Train binary SVM using simplified SGD on hinge loss with RBF kernel
+    // Anti-overfitting: 80/20 train/val split, early stopping, weight decay
     SVMModel train_binary(const vector<vector<double>>& data, const vector<int>& labels,
                           int ca, int cb) {
         SVMModel model;
@@ -166,6 +171,13 @@ struct MultiClassSVM {
         int n = indices.size();
         if (n == 0) return model;
 
+        // ---- Train/Validation split (80/20) ----
+        bool use_val = (n >= 10);
+        int n_train = use_val ? max(2, (int)(n * 0.8)) : n;
+        int n_val = n - n_train;
+        model.n_samples = n_train;
+        model.n_val_samples = n_val;
+
         // Store all as support vectors (kernel perceptron approach)
         model.support_vectors.resize(n);
         model.alphas.resize(n, 0.0);
@@ -188,12 +200,21 @@ struct MultiClassSVM {
             }
         }
 
-        // Training loop (simplified kernel perceptron) - now O(n^2) per epoch
+        // ---- Early stopping state ----
+        double decay = 0.001;    // L2 weight decay
+        int patience = 15;
+        int best_val_errors = n_val + 1;
+        int wait = 0;
+        vector<double> best_alphas = model.alphas;
+        double best_bias = model.bias;
+
+        // Training loop (kernel perceptron) - train on [0, n_train), validate on [n_train, n)
         for (int iter = 0; iter < max_iter; iter++) {
+            // --- Train phase: only update on training samples ---
             int errors = 0;
-            for (int i = 0; i < n; i++) {
+            for (int i = 0; i < n_train; i++) {
                 double score = model.bias;
-                for (int j = 0; j < n; j++) {
+                for (int j = 0; j < n_train; j++) {
                     if (model.alphas[j] != 0.0) {
                         score += model.alphas[j] * K[j][i];
                     }
@@ -204,10 +225,59 @@ struct MultiClassSVM {
                     errors++;
                 }
             }
+
+            // --- Weight decay (L2 regularization) ---
+            for (int j = 0; j < n_train; j++)
+                model.alphas[j] *= (1.0 - decay);
+
+            // --- Validation phase ---
+            int val_errors = 0;
+            if (use_val) {
+                for (int i = n_train; i < n; i++) {
+                    double score = model.bias;
+                    for (int j = 0; j < n_train; j++) {
+                        if (model.alphas[j] != 0.0)
+                            score += model.alphas[j] * K[j][i];
+                    }
+                    if (y[i] * score <= 0) val_errors++;
+                }
+            }
+
             cout << "  SVM(" << ca << "v" << cb << ") Epoch " << (iter+1) << "/" << max_iter
-                 << " | Errors: " << errors << "/" << n << endl;
-            if (errors == 0) break;
+                 << " | Train Errors: " << errors << "/" << n_train;
+            if (use_val)
+                cout << " | Val Errors: " << val_errors << "/" << n_val;
+            cout << endl;
+
+            model.epoch_errors.push_back(errors);
+            model.val_epoch_errors.push_back(val_errors);
+
+            // --- Early stopping ---
+            if (use_val) {
+                if (val_errors < best_val_errors) {
+                    best_val_errors = val_errors;
+                    best_alphas = vector<double>(model.alphas.begin(), model.alphas.begin() + n_train);
+                    best_bias = model.bias;
+                    wait = 0;
+                } else {
+                    wait++;
+                    if (wait >= patience) {
+                        cout << "  Early stopping at epoch " << (iter+1)
+                             << " (best val errors=" << best_val_errors << ")" << endl;
+                        // Restore best weights
+                        for (int j = 0; j < n_train; j++) model.alphas[j] = best_alphas[j];
+                        model.bias = best_bias;
+                        break;
+                    }
+                }
+            } else {
+                if (errors == 0) break;
+            }
         }
+
+        // Trim model to only training support vectors (val alphas are 0)
+        model.support_vectors.resize(n_train);
+        model.alphas.resize(n_train);
         return model;
     }
 
@@ -401,6 +471,37 @@ void save_predictions(const vector<int>& preds, const string& filename) {
     for (int p : preds) f << p << "\n";
     f.close();
     cout << "Predictions saved to " << filename << endl;
+}
+
+void save_epoch_errors(const MultiClassSVM& svm, const string& filename) {
+    ofstream f(filename);
+    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
+    f << "class_a,class_b,epoch,train_errors,n_train,val_errors,n_val\n";
+    for (auto& m : svm.models)
+        for (int e = 0; e < (int)m.epoch_errors.size(); e++)
+            f << m.class_a << "," << m.class_b << "," << (e+1) << ","
+              << m.epoch_errors[e] << "," << m.n_samples << ","
+              << (e < (int)m.val_epoch_errors.size() ? m.val_epoch_errors[e] : 0)
+              << "," << m.n_val_samples << "\n";
+    f.close();
+    cout << "Epoch errors saved to " << filename << endl;
+}
+
+double compute_train_accuracy(MultiClassSVM& svm, const vector<vector<double>>& data,
+                               const vector<int>& labels, int max_samples = 10000) {
+    int n = (int)data.size();
+    int step = (n > max_samples) ? (n / max_samples) : 1;
+    vector<vector<double>> sample_data;
+    vector<int> sample_labels;
+    for (int i = 0; i < n && (int)sample_data.size() < max_samples; i += step) {
+        sample_data.push_back(data[i]);
+        sample_labels.push_back(labels[i]);
+    }
+    auto result = svm.predict(sample_data);
+    int correct = 0;
+    for (int i = 0; i < (int)result.predictions.size(); i++)
+        if (result.predictions[i] == sample_labels[i]) correct++;
+    return 100.0 * correct / (int)result.predictions.size();
 }
 
 void save_dbscan_model(const DBSCANResult& db, const vector<vector<double>>& data,

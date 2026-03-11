@@ -246,6 +246,10 @@ struct SimpleSVM {
     vector<double> alphas;
     double bias, gamma;
     int class_a, class_b;
+    vector<int> epoch_errors;
+    vector<int> val_epoch_errors;
+    int n_samples = 0;
+    int n_val_samples = 0;
 
     void train(const vector<vector<double>>& data, const vector<int>& labels,
                int ca, int cb, int max_iter=200, double lr=0.01) {
@@ -267,6 +271,14 @@ struct SimpleSVM {
 
         int n = idx.size();
         if (n == 0) return;
+
+        // ---- Train/Validation split (80/20) ----
+        bool use_val = (n >= 10);
+        int n_train = use_val ? max(2, (int)(n * 0.8)) : n;
+        int n_val = n - n_train;
+        n_samples = n_train;
+        n_val_samples = n_val;
+
         sv.resize(n); alphas.assign(n, 0); bias = 0;
         vector<double> y(n);
         for (int i = 0; i < n; i++) { sv[i] = data[idx[i]]; y[i] = (labels[idx[i]]==ca)?1:-1; }
@@ -274,18 +286,73 @@ struct SimpleSVM {
         // Pre-compute kernel matrix on GPU (much faster than CPU for large N)
         auto K = gpu_kernel_matrix(sv, gamma);
 
+        // ---- Early stopping state ----
+        double decay = 0.001;
+        int patience = 15;
+        int best_val_errors = n_val + 1;
+        int wait = 0;
+        vector<double> best_alphas(n_train, 0.0);
+        double best_bias = 0.0;
+
         for (int iter = 0; iter < max_iter; iter++) {
+            // --- Train phase ---
             int errors = 0;
-            for (int i = 0; i < n; i++) {
+            for (int i = 0; i < n_train; i++) {
                 double s = bias;
-                for (int j = 0; j < n; j++)
+                for (int j = 0; j < n_train; j++)
                     if (alphas[j] != 0) s += alphas[j] * K[j][i];
                 if (y[i]*s <= 0) { alphas[i] += lr*y[i]; bias += lr*y[i]; errors++; }
             }
+
+            // --- Weight decay ---
+            for (int j = 0; j < n_train; j++)
+                alphas[j] *= (1.0 - decay);
+
+            // --- Validation phase ---
+            int val_errors = 0;
+            if (use_val) {
+                for (int i = n_train; i < n; i++) {
+                    double s = bias;
+                    for (int j = 0; j < n_train; j++)
+                        if (alphas[j] != 0) s += alphas[j] * K[j][i];
+                    if (y[i]*s <= 0) val_errors++;
+                }
+            }
+
             cout << "  SVM(" << ca << "v" << cb << ") Epoch " << (iter+1) << "/" << max_iter
-                 << " | Errors: " << errors << "/" << n << endl;
-            if (errors == 0) break;
+                 << " | Train Errors: " << errors << "/" << n_train;
+            if (use_val)
+                cout << " | Val Errors: " << val_errors << "/" << n_val;
+            cout << endl;
+
+            epoch_errors.push_back(errors);
+            val_epoch_errors.push_back(val_errors);
+
+            // --- Early stopping ---
+            if (use_val) {
+                if (val_errors < best_val_errors) {
+                    best_val_errors = val_errors;
+                    best_alphas.assign(alphas.begin(), alphas.begin() + n_train);
+                    best_bias = bias;
+                    wait = 0;
+                } else {
+                    wait++;
+                    if (wait >= patience) {
+                        cout << "  Early stopping at epoch " << (iter+1)
+                             << " (best val errors=" << best_val_errors << ")" << endl;
+                        for (int j = 0; j < n_train; j++) alphas[j] = best_alphas[j];
+                        bias = best_bias;
+                        break;
+                    }
+                }
+            } else {
+                if (errors == 0) break;
+            }
         }
+
+        // Trim to training support vectors only
+        sv.resize(n_train);
+        alphas.resize(n_train);
     }
 
     pair<int,double> predict_one(const vector<double>& x) {
@@ -367,6 +434,45 @@ void gpu_svm_predict(const vector<SimpleSVM>& models,
 }
 
 // ===== Save Functions =====
+void save_epoch_errors_cuda(const vector<SimpleSVM>& models, const string& filename) {
+    ofstream f(filename);
+    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
+    f << "class_a,class_b,epoch,train_errors,n_train,val_errors,n_val\n";
+    for (auto& m : models)
+        for (int e = 0; e < (int)m.epoch_errors.size(); e++)
+            f << m.class_a << "," << m.class_b << "," << (e+1) << ","
+              << m.epoch_errors[e] << "," << m.n_samples << ","
+              << (e < (int)m.val_epoch_errors.size() ? m.val_epoch_errors[e] : 0)
+              << "," << m.n_val_samples << "\n";
+    f.close();
+    cout << "Epoch errors saved to " << filename << endl;
+}
+
+double compute_train_accuracy_cuda(const vector<SimpleSVM>& models, int n_classes,
+                                    const vector<vector<double>>& data,
+                                    const vector<int>& labels, int max_samples = 10000) {
+    int n = (int)data.size();
+    int step = (n > max_samples) ? (n / max_samples) : 1;
+    int correct = 0, total = 0;
+    for (int i = 0; i < n && total < max_samples; i += step) {
+        // 1-vs-1 voting
+        vector<int> votes(n_classes, 0);
+        vector<double> scores(n_classes, 0.0);
+        for (auto& m : models) {
+            double s = m.bias;
+            for (size_t j = 0; j < m.sv.size(); j++)
+                if (m.alphas[j] != 0) s += m.alphas[j] * rbf_kernel_cpu(m.sv[j], data[i], m.gamma);
+            int pred = (s >= 0) ? m.class_a : m.class_b;
+            votes[pred]++;
+            scores[pred] += fabs(s);
+        }
+        int best = (int)(max_element(votes.begin(), votes.end()) - votes.begin());
+        if (best == labels[i]) correct++;
+        total++;
+    }
+    return 100.0 * correct / max(1, total);
+}
+
 void save_svm_models(const vector<SimpleSVM>& models, int n_classes, const string& filename) {
     ofstream f(filename);
     if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
@@ -530,6 +636,11 @@ int main() {
     // Save models and predictions
     save_svm_models(models, n_classes, "cuda_svm_model.txt");
     save_predictions(final_preds, "cuda_predictions.csv");
+    save_epoch_errors_cuda(models, "cuda_epoch_errors.csv");
+    double train_acc_cuda = compute_train_accuracy_cuda(models, n_classes, train_data, train_labels);
+    double test_acc_cuda = 100.0 * correct / max(1, classified);
+    cout << "Train Accuracy: " << fixed << setprecision(2) << train_acc_cuda << "%" << endl;
+    { ofstream fa("cuda_accuracy.csv"); fa << fixed << setprecision(4) << train_acc_cuda << "," << test_acc_cuda << "\n"; }
 
     return 0;
 }
