@@ -42,9 +42,12 @@ BATCH_SIZE         = 500     # unused (kept for FLOP ref)
 MAX_SV             = 2000    # unused (kept for FLOP ref)
 MAX_ITER           = 5000    # sklearn SVC max_iter
 MAX_TRAIN_PER_PAIR = 5000    # samples per class per pair
-MAX_DBSCAN         = 5000    # cap benign samples for DBSCAN
-DBSCAN_EPS         = 0.2
-DBSCAN_MIN_PTS     = 20
+MAX_DBSCAN         = 999999  # ไม่ cap uncertain (ทั้งหมด)
+MAX_HOLDOUT_DB     = 999999  # ไม่ cap holdout (ทั้งหมด)
+CONF_THRESHOLD     = 0.5     # SVM confidence cutoff
+DBSCAN_EPS         = 0.0     # auto-tune via k-distance graph
+DBSCAN_MIN_PTS     = 8       # เหมือน CUDA MIN_SAMPLES=8
+PCA_N_COMPONENTS   = 0       # ไม่ใช้ PCA — ใช้ 4D SVM scores แทน
 
 
 # ===================== Config loader =====================
@@ -127,22 +130,73 @@ def train_binary_pair(task):
 
 
 # ===================== DBSCAN =====================
-def run_dbscan(data, eps=1.5, min_pts=None):
+def auto_tune_eps(data, min_pts, pct=90):
+    """Kneedle on k-distance graph — เหมือน CUDA version"""
+    from sklearn.neighbors import NearestNeighbors
+    k = min(min_pts, len(data) - 1)
+    nbrs = NearestNeighbors(n_neighbors=k, n_jobs=-1).fit(data)
+    dists, _ = nbrs.kneighbors(data)
+    kdist = np.sort(dists[:, -1])  # distance to k-th neighbor
+    n = len(kdist)
+
+    # clip at p90 ก่อนหา knee (ตัด fat tail)
+    clip_n = max(4, int(n * 0.90))
+    v0, vn = kdist[0], kdist[clip_n - 1]
+    rng_k  = vn - v0 + 1e-9
+
+    # Kneedle: argmax(x_norm - y_norm)
+    knee = clip_n // 2
+    max_dev = -1e30
+    for i in range(clip_n):
+        x_n = i / (clip_n - 1)
+        y_n = (kdist[i] - v0) / rng_k
+        if (x_n - y_n) > max_dev:
+            max_dev = x_n - y_n
+            knee = i
+
+    # clamp ใน [p10, p87]
+    knee = max(n // 10, min(knee, int(n * 0.87)))
+    eps  = float(kdist[knee])
+    print(f"  k-dist auto eps={eps:.4f}  "
+          f"(p10={kdist[n//10]:.4f} p50={kdist[n//2]:.4f} p90={kdist[9*n//10]:.4f})")
+    return eps
+
+
+def run_dbscan(data, eps=0.0, min_pts=None, pca_n=0):
+    """
+    PCA (optional) + auto-eps + DBSCAN
+    eps=0.0  → auto-tune via k-distance graph
+    pca_n>0  → ลด dimension ก่อน (ช่วยแก้ curse of dimensionality)
+    """
     if min_pts is None:
         min_pts = data.shape[1] + 1
+
+    # PCA dimension reduction
+    if pca_n > 0 and data.shape[1] > pca_n:
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=pca_n, random_state=42)
+        data = pca.fit_transform(data)
+        var_explained = pca.explained_variance_ratio_.sum()
+        print(f"  PCA: {data.shape[1]}D → {pca_n}D  "
+              f"(variance explained: {var_explained:.1%})")
+
+    # auto-tune eps
+    if eps <= 0.0:
+        eps = auto_tune_eps(data, min_pts)
+
     try:
         from sklearn.cluster import DBSCAN
-        # ball_tree เร็วกว่า brute force สำหรับ large dataset
-        algo = 'ball_tree' if len(data) > 10000 else 'auto'
+        algo = 'ball_tree' if len(data) > 5000 else 'auto'
         labels = DBSCAN(eps=eps, min_samples=min_pts,
                         algorithm=algo, n_jobs=-1).fit(data).labels_
     except ImportError:
         labels = np.full(len(data), -1)
-    N, D       = data.shape
+
+    N, D_orig  = data.shape[0], data.shape[1]
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     n_noise    = int(np.sum(labels == -1))
-    flops      = N*(N-1)//2 * (3*D + 1)
-    return labels, n_clusters, n_noise, flops
+    flops      = N*(N-1)//2 * (3*D_orig + 1)
+    return labels, n_clusters, n_noise, flops, eps
 
 
 # ===================== Metrics =====================
@@ -372,13 +426,15 @@ def run_pipeline(test_mode=False, n_workers=3):
         confs     = score_mat[_np.arange(N), best_pos] / _np.maximum(
                         vote_mat[_np.arange(N), best_pos], 1)
 
-        return iter([(idxs[i], best_cls[i], float(confs[i])) for i in range(N)])
+        return iter([(idxs[i], best_cls[i], float(confs[i]), score_mat[i].tolist()) for i in range(N)])
 
     t0 = time.time()
     raw         = sorted(test_rdd.mapPartitions(predict_partition).collect(),
                          key=lambda x: x[0])
     svm_pred_t  = time.time() - t0
-    predictions = [r[1] for r in raw]
+    predictions  = [r[1] for r in raw]
+    confs        = [r[2] for r in raw]
+    svm_scores   = np.array([r[3] for r in raw], dtype=np.float64)  # (N,4) SVM scores — เหมือน CUDA
     pred_flops  = N_test * total_sv * (3*D + 2)
 
     # debug — แสดงการกระจาย prediction
@@ -389,8 +445,8 @@ def run_pipeline(test_mode=False, n_workers=3):
         cnt = int(np.sum(pred_arr == cid))
         print(f"    class {cid} ({label_map.get(cid,'?')}): {cnt:,} samples ({100*cnt/N_test:.1f}%)")
 
-    # ── Stage 5: DBSCAN ──────────────────────────────────────
-    print("\n[Stage 4] DBSCAN on Benign samples...")
+    # ── Stage 5: DBSCAN (CUDA-style: holdout + uncertain pool) ──
+    print("\n[Stage 4] DBSCAN — Hybrid pool (holdout + uncertain)...")
 
     benign_id = next((cid for cid, name in label_map.items()
                       if "normal" in name.lower()),
@@ -401,33 +457,91 @@ def run_pipeline(test_mode=False, n_workers=3):
     final_preds  = list(predictions)
     dbscan_flops = 0
     dbscan_t     = 0.0
+    confs_arr    = np.array(confs)
 
-    benign_idx_arr = np.where(pred_arr == benign_id)[0].tolist()
-    n_benign       = len(benign_idx_arr)
-    print(f"  SVM→benign: {n_benign:,} samples → send to DBSCAN")
+    # holdout pool — samples จาก holdout classes (SVM ไม่รู้จัก)
+    holdout_idx_arr  = np.where(np.isin(test_labels, holdout_ids))[0]
+    n_holdout_pool   = len(holdout_idx_arr)
 
-    if n_benign > 1:
-        if n_benign > MAX_DBSCAN:
-            rng_d    = np.random.default_rng(42)
-            sel      = rng_d.choice(n_benign, MAX_DBSCAN, replace=False)
-            cap_idx  = [benign_idx_arr[s] for s in sel]
-            print(f"  Random-sampled {MAX_DBSCAN:,} from {n_benign:,}")
-        else:
-            cap_idx = benign_idx_arr
+    # uncertain pool — non-holdout ที่ confidence ต่ำ
+    non_holdout_mask = ~np.isin(test_labels, holdout_ids)
+    uncertain_mask   = non_holdout_mask & (confs_arr < CONF_THRESHOLD)
+    uncertain_idx_arr = np.where(uncertain_mask)[0]
+    n_uncertain       = len(uncertain_idx_arr)
 
-        cap_data = test_data[cap_idx]
+    print(f"  Holdout pool : {n_holdout_pool:,} samples")
+    print(f"  Uncertain pool (conf < {CONF_THRESHOLD}): {n_uncertain:,} samples")
 
+    # cap uncertain ถ้าเยอะเกิน
+    rng_d = np.random.default_rng(42)
+    if n_uncertain > MAX_DBSCAN:
+        sel = rng_d.choice(n_uncertain, MAX_DBSCAN, replace=False)
+        uncertain_cap = uncertain_idx_arr[sel]
+        print(f"  Uncertain capped: {MAX_DBSCAN:,} from {n_uncertain:,}")
+    else:
+        uncertain_cap = uncertain_idx_arr
+
+    # cap holdout ถ้าเยอะเกิน
+    if n_holdout_pool > MAX_HOLDOUT_DB:
+        sel_h = rng_d.choice(n_holdout_pool, MAX_HOLDOUT_DB, replace=False)
+        holdout_cap = holdout_idx_arr[sel_h]
+    else:
+        holdout_cap = holdout_idx_arr
+
+    # holdout first (index 0..n_h-1) แล้ว uncertain — เหมือน CUDA
+    n_h      = len(holdout_cap)
+    cap_idx  = np.concatenate([holdout_cap, uncertain_cap])
+    cap_data = svm_scores[cap_idx]   # 4-dim SVM scores เหมือน CUDA
+    n_db     = len(cap_idx)
+    print(f"  DBSCAN pool: {n_db:,} samples (holdout={n_h}, uncertain={len(uncertain_cap)})")
+
+    if n_db > 1:
         t0 = time.time()
-        db_labels, n_clusters, n_noise, dbscan_flops = run_dbscan(
-            cap_data, eps=DBSCAN_EPS, min_pts=DBSCAN_MIN_PTS)
+        db_labels, n_clusters, n_noise, dbscan_flops, eps_used = run_dbscan(
+            cap_data, eps=DBSCAN_EPS, min_pts=DBSCAN_MIN_PTS,
+            pca_n=PCA_N_COMPONENTS)
         dbscan_t = time.time() - t0
         print(f"  DBSCAN done: {dbscan_t*1000:.1f} ms | "
-              f"clusters={n_clusters} | noise={n_noise}")
+              f"clusters={n_clusters} | noise={n_noise} | eps={eps_used:.4f}")
 
+        # คำนวณ normal centroid จาก uncertain pool ที่ SVM ทาย benign
+        pred_arr_cap = np.array([predictions[i] for i in cap_idx])
+
+        # label clusters ด้วย holdout majority vote + normal proximity
+        cluster_labels = {}  # cluster_id → orig class
+        if n_clusters > 0:
+            from collections import Counter
+            # normal centroid ใน feature space
+            unc_benign_mask = pred_arr_cap[n_h:] == benign_id
+            if unc_benign_mask.sum() > 0:
+                normal_centroid = cap_data[n_h:][unc_benign_mask].mean(axis=0)
+            else:
+                normal_centroid = cap_data[n_h:].mean(axis=0)
+
+            # cluster centroids
+            for cid in range(n_clusters):
+                members = np.where(np.array(db_labels) == cid)[0]
+                # holdout members ใน cluster นี้
+                holdout_members = members[members < n_h]
+                if len(holdout_members) > 0:
+                    votes = Counter(test_labels[holdout_cap[m]] for m in holdout_members)
+                    cluster_labels[cid] = votes.most_common(1)[0][0]
+                else:
+                    # ไม่มี holdout anchor → เช็ค proximity กับ normal
+                    centroid = cap_data[members].mean(axis=0)
+                    dist = np.linalg.norm(centroid - normal_centroid)
+                    cluster_labels[cid] = benign_id if dist < 2.0 else -2
+
+        # assign final predictions
         for i, orig in enumerate(cap_idx):
-            final_preds[orig] = -1 if db_labels[i] >= 0 else -2
+            cid = db_labels[i]
+            if cid < 0:
+                # noise → novel attack (-1)
+                final_preds[orig] = -1
+            else:
+                final_preds[orig] = cluster_labels.get(cid, -1)
 
-        save_dbscan_model(db_labels, cap_data, DBSCAN_EPS, DBSCAN_MIN_PTS,
+        save_dbscan_model(db_labels, cap_data, eps_used, DBSCAN_MIN_PTS,
                           "pyspark_dbscan_model.txt")
 
     spark.stop()
