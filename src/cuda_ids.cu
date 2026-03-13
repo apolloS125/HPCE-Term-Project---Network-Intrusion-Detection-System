@@ -1,5 +1,6 @@
 // cuda_ids.cu - CUDA GPU accelerated SVM + DBSCAN pipeline
-// Compile: nvcc -O2 -o cuda_ids cuda_ids.cu -lm
+// Upgraded: RFF transformer kernel + One-Vs-Rest Linear SVM (from cuda/src techniques)
+// Compile: nvcc -O2 -std=c++17 -o cuda_ids cuda_ids.cu -lm
 // Requires: NVIDIA GPU with CUDA toolkit
 
 #include <iostream>
@@ -11,11 +12,15 @@
 #include <chrono>
 #include <iomanip>
 #include <cstdlib>
+#include <cassert>
+#include <random>
 
 using namespace std;
 
 // ===== Constants =====
-const int MAX_DBSCAN = 20000;  // Cap for GPU distance matrix (N^2 * 8 bytes on VRAM) ~3.2GB on 8GB RTX 2080
+const int D_RFF      = 1024;   // RFF dimension
+const double GAMMA   = 0.1;    // RBF gamma
+const int MAX_DBSCAN = 20000;  // Cap for GPU distance matrix
 
 // ===== CUDA Error Check =====
 #define CUDA_CHECK(call) { \
@@ -26,7 +31,7 @@ const int MAX_DBSCAN = 20000;  // Cap for GPU distance matrix (N^2 * 8 bytes on 
     } \
 }
 
-// ===== Data I/O (same as common.h) =====
+// ===== Data I/O =====
 vector<vector<double>> load_csv(const string& filename) {
     vector<vector<double>> data;
     ifstream file(filename);
@@ -57,590 +62,406 @@ struct Timer {
 };
 
 int detect_n_classes(const vector<int>& labels) {
-    int max_label = 0;
-    for (int l : labels) if (l > max_label) max_label = l;
-    return max_label + 1;
+    int mx = 0;
+    for (int l : labels) if (l > mx) mx = l;
+    return mx + 1;
 }
 
 // ===== CUDA Kernels =====
 
-// Pairwise Euclidean distance matrix (main GPU kernel)
-__global__ void distance_matrix_kernel(const double* data, double* dist, int N, int D) {
-    int i = blockIdx.y * blockDim.y + threadIdx.y;
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
+// --- RFF Transform Kernel ---
+// Each thread computes one output RFF feature for one sample.
+// data:   [N, D_in] row-major (float)
+// Omega:  [D_rff, D_in] row-major (float)
+// phi:    [D_rff] (float)
+// out:    [N, D_rff] row-major (float)
+__global__ void rff_transform_kernel(const float* data, const float* Omega, const float* phi,
+                                      float* out, int N, int D_in, int D_rff) {
+    int sample = blockIdx.x * blockDim.x + threadIdx.x;
+    int feat   = blockIdx.y * blockDim.y + threadIdx.y;
+    if (sample >= N || feat >= D_rff) return;
 
-    if (i < N && j < N && i < j) {
-        double sum = 0.0;
-        for (int k = 0; k < D; k++) {
-            double d = data[i * D + k] - data[j * D + k];
-            sum += d * d;
-        }
-        double dist_val = sqrt(sum);
-        dist[i * N + j] = dist_val;
-        dist[j * N + i] = dist_val;
-    }
+    float dot = phi[feat];
+    for (int d = 0; d < D_in; d++)
+        dot += Omega[feat * D_in + d] * data[sample * D_in + d];
+    float norm = sqrtf(2.0f / (float)D_rff);
+    out[sample * D_rff + feat] = norm * cosf(dot);
 }
 
-// RBF Kernel matrix computation
-__global__ void rbf_kernel_matrix(const double* data, double* kernel_mat,
-                                   int N, int D, double gamma) {
-    int i = blockIdx.y * blockDim.y + threadIdx.y;
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (i < N && j < N) {
-        double sum = 0.0;
-        for (int k = 0; k < D; k++) {
-            double d = data[i * D + k] - data[j * D + k];
-            sum += d * d;
-        }
-        kernel_mat[i * N + j] = exp(-gamma * sum);
-    }
-}
-
-// SVM prediction kernel (simplified - compute kernel values)
-__global__ void svm_predict_kernel(const double* test_data, const double* sv_data,
-                                    const double* alphas, double* scores,
-                                    int N_test, int N_sv, int D, double gamma) {
+// --- OvR Linear SVM Predict Kernel ---
+// rff_data:   [N, D_rff] (float)
+// W:          [n_classes, D_rff+1] (float, +1 for bias)
+// preds:      [N] (int output)
+// confs:      [N] (float confidence = max_score - 2nd_max)
+__global__ void ovr_predict_kernel(const float* rff_data, const float* W,
+                                    int* preds, float* confs,
+                                    int N, int D_rff, int n_classes) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < N_test) {
-        double score = 0.0;
-        for (int j = 0; j < N_sv; j++) {
-            double dist_sq = 0.0;
-            for (int k = 0; k < D; k++) {
-                double d = test_data[i * D + k] - sv_data[j * D + k];
-                dist_sq += d * d;
-            }
-            score += alphas[j] * exp(-gamma * dist_sq);
+    if (i >= N) return;
+
+    float best_score  = -1e30f;
+    float second_score = -1e30f;
+    int   best_class  = 0;
+
+    for (int c = 0; c < n_classes; c++) {
+        float score = W[c * (D_rff + 1) + D_rff]; // bias
+        for (int d = 0; d < D_rff; d++)
+            score += W[c * (D_rff + 1) + d] * rff_data[i * D_rff + d];
+
+        if (score > best_score) {
+            second_score = best_score;
+            best_score   = score;
+            best_class   = c;
+        } else if (score > second_score) {
+            second_score = score;
         }
-        scores[i] = score;
     }
+    preds[i] = best_class;
+    confs[i]  = best_score - second_score;
 }
 
-// ===== Host Functions =====
-
-// Flatten 2D vector to 1D array for CUDA
-vector<double> flatten(const vector<vector<double>>& data) {
-    int N = data.size(), D = data[0].size();
-    vector<double> flat(N * D);
-    for (int i = 0; i < N; i++)
-        for (int j = 0; j < D; j++)
-            flat[i * D + j] = data[i][j];
-    return flat;
+// --- Distance Matrix Kernel (for DBSCAN) ---
+__global__ void distance_matrix_kernel(const float* data, float* dist, int N, int D) {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N || j >= N || i >= j) return;
+    float sum = 0.0f;
+    for (int k = 0; k < D; k++) {
+        float d = data[i * D + k] - data[j * D + k];
+        sum += d * d;
+    }
+    float dv = sqrtf(sum);
+    dist[i * N + j] = dv;
+    dist[j * N + i] = dv;
 }
 
-// GPU distance matrix
-vector<double> gpu_distance_matrix(const vector<vector<double>>& data, double& time_ms, long long& flops) {
-    int N = data.size(), D = data[0].size();
-    auto flat = flatten(data);
-
-    double *d_data, *d_dist;
-    CUDA_CHECK(cudaMalloc(&d_data, N * D * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_dist, N * N * sizeof(double)));
-    CUDA_CHECK(cudaMemset(d_dist, 0, N * N * sizeof(double)));
-    CUDA_CHECK(cudaMemcpy(d_data, flat.data(), N * D * sizeof(double), cudaMemcpyHostToDevice));
-
-    dim3 block(16, 16);
-    dim3 grid((N + 15) / 16, (N + 15) / 16);
-
-    Timer t; t.start();
-    distance_matrix_kernel<<<grid, block>>>(d_data, d_dist, N, D);
-    CUDA_CHECK(cudaDeviceSynchronize());
-    time_ms = t.ms();
-
-    vector<double> dist(N * N);
-    CUDA_CHECK(cudaMemcpy(dist.data(), d_dist, N * N * sizeof(double), cudaMemcpyDeviceToHost));
-
-    CUDA_CHECK(cudaFree(d_data));
-    CUDA_CHECK(cudaFree(d_dist));
-
-    flops = (long long)N * (N - 1) / 2 * (3 * D + 1);
-    return dist;
-}
-
-// DBSCAN using GPU-computed distance matrix
+// ===== CPU DBSCAN (using GPU-computed distance matrix) =====
 struct DBSCANResult {
-    vector<int> labels;
+    vector<int> cluster_labels;
     int n_clusters, n_noise;
-    long long flops;
 };
 
-DBSCANResult gpu_dbscan(const vector<vector<double>>& data, double eps, int min_pts) {
-    int N = data.size();
-    double dist_time;
-    long long dist_flops;
-    auto dist = gpu_distance_matrix(data, dist_time, dist_flops);
+DBSCANResult cpu_dbscan_from_matrix(const vector<float>& dist, int N, double eps, int min_pts) {
+    DBSCANResult res;
+    res.cluster_labels.assign(N, -2);
+    res.n_clusters = 0;
 
-    DBSCANResult result;
-    result.labels.assign(N, -2);
-    result.n_clusters = 0;
-    result.flops = dist_flops;
+    auto region_query = [&](int p) {
+        vector<int> nb;
+        for (int i = 0; i < N; i++)
+            if ((double)dist[p * N + i] <= eps) nb.push_back(i);
+        return nb;
+    };
 
-    // CPU-side DBSCAN using GPU-computed distances
     for (int i = 0; i < N; i++) {
-        if (result.labels[i] != -2) continue;
-        vector<int> neighbors;
-        for (int j = 0; j < N; j++)
-            if (dist[i * N + j] <= eps) neighbors.push_back(j);
-
-        if ((int)neighbors.size() < min_pts) { result.labels[i] = -1; continue; }
-        int cid = result.n_clusters++;
-        result.labels[i] = cid;
-        vector<int> seed(neighbors.begin(), neighbors.end());
+        if (res.cluster_labels[i] != -2) continue;
+        auto nb = region_query(i);
+        if ((int)nb.size() < min_pts) { res.cluster_labels[i] = -1; continue; }
+        int cid = res.n_clusters++;
+        res.cluster_labels[i] = cid;
+        vector<int> seed(nb.begin(), nb.end());
         for (size_t s = 0; s < seed.size(); s++) {
             int q = seed[s];
-            if (result.labels[q] == -1) result.labels[q] = cid;
-            if (result.labels[q] != -2) continue;
-            result.labels[q] = cid;
-            vector<int> qn;
-            for (int j = 0; j < N; j++)
-                if (dist[q * N + j] <= eps) qn.push_back(j);
+            if (res.cluster_labels[q] == -1) res.cluster_labels[q] = cid;
+            if (res.cluster_labels[q] != -2) continue;
+            res.cluster_labels[q] = cid;
+            auto qn = region_query(q);
             if ((int)qn.size() >= min_pts)
                 for (int nn : qn)
                     if (find(seed.begin(), seed.end(), nn) == seed.end())
                         seed.push_back(nn);
         }
     }
-    result.n_noise = count(result.labels.begin(), result.labels.end(), -1);
-    return result;
+    res.n_noise = count(res.cluster_labels.begin(), res.cluster_labels.end(), -1);
+    return res;
 }
 
-// GPU-accelerated RBF kernel matrix computation
-vector<vector<double>> gpu_kernel_matrix(const vector<vector<double>>& data, double gamma) {
-    int N = data.size(), D = data[0].size();
-    auto flat = flatten(data);
+// ===== CPU OvR Linear SVM Training (SGD + Cosine LR + Class Weights) =====
+// (Training is done on CPU with RFF-transformed float features for simplicity.
+//  Inference is on GPU via ovr_predict_kernel above.)
+struct OvrModel {
+    int n_classes, D_rff;
+    vector<float> W;    // [n_classes * (D_rff+1)] flat, row-major
+    float conf_threshold = 0.3f;
 
-    double *d_data, *d_kernel;
-    CUDA_CHECK(cudaMalloc(&d_data, (long long)N * D * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_kernel, (long long)N * N * sizeof(double)));
-    CUDA_CHECK(cudaMemcpy(d_data, flat.data(), (long long)N * D * sizeof(double), cudaMemcpyHostToDevice));
+    void train(const vector<vector<float>>& rff_data, const vector<int>& labels,
+               int max_epochs = 30, float lr = 0.05f, float reg = 1e-4f) {
+        int N = rff_data.size();
+        W.assign((size_t)n_classes * (D_rff + 1), 0.0f);
 
-    dim3 block(16, 16);
-    dim3 grid((N + 15) / 16, (N + 15) / 16);
-    rbf_kernel_matrix<<<grid, block>>>(d_data, d_kernel, N, D, gamma);
-    CUDA_CHECK(cudaDeviceSynchronize());
+        // Compute class weights
+        vector<int> counts(n_classes, 0);
+        for (int l : labels) if (l >= 0 && l < n_classes) counts[l]++;
+        vector<float> cw(n_classes, 1.0f);
+        for (int c = 0; c < n_classes; c++)
+            if (counts[c] > 0) cw[c] = (float)N / (n_classes * counts[c]);
 
-    vector<double> flat_kernel((long long)N * N);
-    CUDA_CHECK(cudaMemcpy(flat_kernel.data(), d_kernel, (long long)N * N * sizeof(double), cudaMemcpyDeviceToHost));
-
-    CUDA_CHECK(cudaFree(d_data));
-    CUDA_CHECK(cudaFree(d_kernel));
-
-    vector<vector<double>> K(N, vector<double>(N));
-    for (int i = 0; i < N; i++)
-        for (int j = 0; j < N; j++)
-            K[i][j] = flat_kernel[(long long)i * N + j];
-    return K;
-}
-
-// ===== Simplified SVM (CPU training with GPU kernel, GPU prediction) =====
-// Training loop is sequential (kernel perceptron), but kernel matrix computed on GPU
-
-inline double rbf_kernel_cpu(const vector<double>& a, const vector<double>& b, double gamma) {
-    double d = 0;
-    for (size_t i = 0; i < a.size(); i++) { double x = a[i]-b[i]; d += x*x; }
-    return exp(-gamma * d);
-}
-
-struct SimpleSVM {
-    vector<vector<double>> sv;
-    vector<double> alphas;
-    double bias, gamma;
-    int class_a, class_b;
-    vector<int> epoch_errors;
-    vector<int> val_epoch_errors;
-    int n_samples = 0;
-    int n_val_samples = 0;
-
-    void train(const vector<vector<double>>& data, const vector<int>& labels,
-               int ca, int cb, int max_iter=200, double lr=0.01) {
-        gamma = 0.1;
-        class_a = ca; class_b = cb;
-        vector<int> idx;
-        for (size_t i = 0; i < labels.size(); i++)
-            if (labels[i] == ca || labels[i] == cb) idx.push_back(i);
-
-        // Subsample if too many samples (limit to 10000 per class pair)
-        int max_samples = 10000;
-        if ((int)idx.size() > max_samples) {
-            vector<int> sampled;
-            int step = idx.size() / max_samples;
-            for (int i = 0; i < max_samples; i++)
-                sampled.push_back(idx[i * step]);
-            idx = sampled;
-        }
-
-        int n = idx.size();
-        if (n == 0) return;
-
-        // ---- Train/Validation split (80/20) ----
-        bool use_val = (n >= 10);
-        int n_train = use_val ? max(2, (int)(n * 0.8)) : n;
-        int n_val = n - n_train;
-        n_samples = n_train;
-        n_val_samples = n_val;
-
-        sv.resize(n); alphas.assign(n, 0); bias = 0;
-        vector<double> y(n);
-        for (int i = 0; i < n; i++) { sv[i] = data[idx[i]]; y[i] = (labels[idx[i]]==ca)?1:-1; }
-
-        // Pre-compute kernel matrix on GPU (much faster than CPU for large N)
-        auto K = gpu_kernel_matrix(sv, gamma);
-
-        // ---- Early stopping state ----
-        double decay = 0.001;
-        int patience = 15;
-        int best_val_errors = n_val + 1;
-        int wait = 0;
-        vector<double> best_alphas(n_train, 0.0);
-        double best_bias = 0.0;
-
-        for (int iter = 0; iter < max_iter; iter++) {
-            // --- Train phase ---
-            int errors = 0;
-            for (int i = 0; i < n_train; i++) {
-                double s = bias;
-                for (int j = 0; j < n_train; j++)
-                    if (alphas[j] != 0) s += alphas[j] * K[j][i];
-                if (y[i]*s <= 0) { alphas[i] += lr*y[i]; bias += lr*y[i]; errors++; }
-            }
-
-            // --- Weight decay ---
-            for (int j = 0; j < n_train; j++)
-                alphas[j] *= (1.0 - decay);
-
-            // --- Validation phase ---
-            int val_errors = 0;
-            if (use_val) {
-                for (int i = n_train; i < n; i++) {
-                    double s = bias;
-                    for (int j = 0; j < n_train; j++)
-                        if (alphas[j] != 0) s += alphas[j] * K[j][i];
-                    if (y[i]*s <= 0) val_errors++;
-                }
-            }
-
-            cout << "  SVM(" << ca << "v" << cb << ") Epoch " << (iter+1) << "/" << max_iter
-                 << " | Train Errors: " << errors << "/" << n_train;
-            if (use_val)
-                cout << " | Val Errors: " << val_errors << "/" << n_val;
-            cout << endl;
-
-            epoch_errors.push_back(errors);
-            val_epoch_errors.push_back(val_errors);
-
-            // --- Early stopping ---
-            if (use_val) {
-                if (val_errors < best_val_errors) {
-                    best_val_errors = val_errors;
-                    best_alphas.assign(alphas.begin(), alphas.begin() + n_train);
-                    best_bias = bias;
-                    wait = 0;
-                } else {
-                    wait++;
-                    if (wait >= patience) {
-                        cout << "  Early stopping at epoch " << (iter+1)
-                             << " (best val errors=" << best_val_errors << ")" << endl;
-                        for (int j = 0; j < n_train; j++) alphas[j] = best_alphas[j];
-                        bias = best_bias;
-                        break;
+        for (int ep = 0; ep < max_epochs; ep++) {
+            float eta = lr * 0.5f * (1.0f + cosf(M_PI * (float)ep / max_epochs));
+            for (int c = 0; c < n_classes; c++) {
+                for (int i = 0; i < N; i++) {
+                    float yi = (labels[i] == c) ? 1.0f : -1.0f;
+                    float score = W[c * (D_rff + 1) + D_rff]; // bias
+                    for (int d = 0; d < D_rff; d++)
+                        score += W[c * (D_rff + 1) + d] * rff_data[i][d];
+                    float hinge = max(0.0f, 1.0f - yi * score);
+                    if (hinge > 0.0f) {
+                        float g = -yi * cw[c] * eta;
+                        for (int d = 0; d < D_rff; d++)
+                            W[c * (D_rff + 1) + d] -= g * rff_data[i][d];
+                        W[c * (D_rff + 1) + D_rff] -= g; // bias
                     }
                 }
-            } else {
-                if (errors == 0) break;
+                // L2 weight decay
+                for (int d = 0; d < D_rff; d++)
+                    W[c * (D_rff + 1) + d] *= (1.0f - eta * reg);
             }
+            if ((ep + 1) % 10 == 0)
+                cout << "  Epoch " << (ep+1) << "/" << max_epochs << " done" << endl;
         }
-
-        // Trim to training support vectors only
-        sv.resize(n_train);
-        alphas.resize(n_train);
     }
 
-    pair<int,double> predict_one(const vector<double>& x) {
-        double s = bias;
-        for (size_t j = 0; j < sv.size(); j++)
-            if (alphas[j] != 0) s += alphas[j] * rbf_kernel_cpu(sv[j], x, gamma);
-        return {(s>=0)?class_a:class_b, fabs(s)};
+    void save(const string& filename) const {
+        ofstream f(filename);
+        f << n_classes << " " << D_rff << " " << conf_threshold << "\n";
+        for (float v : W) f << v << " ";
+        f << "\n";
+        cout << "OvR model saved to " << filename << "\n";
     }
 };
 
-// GPU-accelerated batch SVM prediction
-void gpu_svm_predict(const vector<SimpleSVM>& models,
-                     const vector<vector<double>>& test_data,
-                     int n_classes,
-                     vector<int>& predictions, vector<double>& confidences) {
-    int N_test = test_data.size();
-    int D = test_data[0].size();
-
-    // Upload test data to GPU once, reuse across all models
-    auto flat_test = flatten(test_data);
-    double* d_test;
-    CUDA_CHECK(cudaMalloc(&d_test, (long long)N_test * D * sizeof(double)));
-    CUDA_CHECK(cudaMemcpy(d_test, flat_test.data(), (long long)N_test * D * sizeof(double), cudaMemcpyHostToDevice));
-    flat_test.clear(); flat_test.shrink_to_fit();  // free host copy
-
-    // Flat vote/score arrays: N_test * n_classes
-    vector<int> votes(N_test * n_classes, 0);
-    vector<double> scores(N_test * n_classes, 0.0);
-
-    double* d_scores;
-    CUDA_CHECK(cudaMalloc(&d_scores, N_test * sizeof(double)));
-
-    for (size_t mi = 0; mi < models.size(); mi++) {
-        auto& model = models[mi];
-        int N_sv = model.sv.size();
-        if (N_sv == 0) continue;
-
-        auto flat_sv = flatten(model.sv);
-        double *d_sv, *d_alphas;
-        CUDA_CHECK(cudaMalloc(&d_sv, (long long)N_sv * D * sizeof(double)));
-        CUDA_CHECK(cudaMalloc(&d_alphas, N_sv * sizeof(double)));
-        CUDA_CHECK(cudaMemcpy(d_sv, flat_sv.data(), (long long)N_sv * D * sizeof(double), cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_alphas, model.alphas.data(), N_sv * sizeof(double), cudaMemcpyHostToDevice));
-
-        int block_size = 256;
-        int grid_size = (N_test + block_size - 1) / block_size;
-        svm_predict_kernel<<<grid_size, block_size>>>(d_test, d_sv, d_alphas, d_scores,
-                                                       N_test, N_sv, D, model.gamma);
-        CUDA_CHECK(cudaDeviceSynchronize());
-
-        vector<double> raw_scores(N_test);
-        CUDA_CHECK(cudaMemcpy(raw_scores.data(), d_scores, N_test * sizeof(double), cudaMemcpyDeviceToHost));
-
-        for (int i = 0; i < N_test; i++) {
-            double s = raw_scores[i] + model.bias;
-            int pred = (s >= 0) ? model.class_a : model.class_b;
-            votes[i * n_classes + pred]++;
-            scores[i * n_classes + pred] += fabs(s);
-        }
-
-        CUDA_CHECK(cudaFree(d_sv));
-        CUDA_CHECK(cudaFree(d_alphas));
-        cout << "  GPU predict model " << (mi+1) << "/" << models.size()
-             << " (" << model.class_a << "v" << model.class_b << ") done" << endl;
-    }
-
-    CUDA_CHECK(cudaFree(d_test));
-    CUDA_CHECK(cudaFree(d_scores));
-
-    predictions.resize(N_test);
-    confidences.resize(N_test);
-    for (int i = 0; i < N_test; i++) {
-        int best = 0;
-        for (int c = 1; c < n_classes; c++)
-            if (votes[i * n_classes + c] > votes[i * n_classes + best]) best = c;
-        predictions[i] = best;
-        confidences[i] = scores[i * n_classes + best] / max(1, votes[i * n_classes + best]);
-    }
-}
-
-// ===== Save Functions =====
-void save_epoch_errors_cuda(const vector<SimpleSVM>& models, const string& filename) {
-    ofstream f(filename);
-    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
-    f << "class_a,class_b,epoch,train_errors,n_train,val_errors,n_val\n";
-    for (auto& m : models)
-        for (int e = 0; e < (int)m.epoch_errors.size(); e++)
-            f << m.class_a << "," << m.class_b << "," << (e+1) << ","
-              << m.epoch_errors[e] << "," << m.n_samples << ","
-              << (e < (int)m.val_epoch_errors.size() ? m.val_epoch_errors[e] : 0)
-              << "," << m.n_val_samples << "\n";
-    f.close();
-    cout << "Epoch errors saved to " << filename << endl;
-}
-
-double compute_train_accuracy_cuda(const vector<SimpleSVM>& models, int n_classes,
-                                    const vector<vector<double>>& data,
-                                    const vector<int>& labels, int max_samples = 10000) {
-    int n = (int)data.size();
-    int step = (n > max_samples) ? (n / max_samples) : 1;
-    int correct = 0, total = 0;
-    for (int i = 0; i < n && total < max_samples; i += step) {
-        // 1-vs-1 voting
-        vector<int> votes(n_classes, 0);
-        vector<double> scores(n_classes, 0.0);
-        for (auto& m : models) {
-            double s = m.bias;
-            for (size_t j = 0; j < m.sv.size(); j++)
-                if (m.alphas[j] != 0) s += m.alphas[j] * rbf_kernel_cpu(m.sv[j], data[i], m.gamma);
-            int pred = (s >= 0) ? m.class_a : m.class_b;
-            votes[pred]++;
-            scores[pred] += fabs(s);
-        }
-        int best = (int)(max_element(votes.begin(), votes.end()) - votes.begin());
-        if (best == labels[i]) correct++;
-        total++;
-    }
-    return 100.0 * correct / max(1, total);
-}
-
-void save_svm_models(const vector<SimpleSVM>& models, int n_classes, const string& filename) {
-    ofstream f(filename);
-    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
-    f << n_classes << " 0.1 200 0.01\n";
-    f << models.size() << "\n";
-    for (auto& m : models) {
-        f << m.class_a << " " << m.class_b << " " << m.gamma << " " << m.bias << "\n";
-        int nsv = m.sv.size();
-        int D = nsv > 0 ? (int)m.sv[0].size() : 0;
-        f << nsv << " " << D << "\n";
-        for (int i = 0; i < nsv; i++) {
-            f << m.alphas[i];
-            for (int j = 0; j < D; j++) f << " " << m.sv[i][j];
-            f << "\n";
-        }
-    }
-    f.close();
-    cout << "Model saved to " << filename << endl;
-}
-
-void save_predictions(const vector<int>& preds, const string& filename) {
-    ofstream f(filename);
-    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
-    for (int p : preds) f << p << "\n";
-    f.close();
-    cout << "Predictions saved to " << filename << endl;
-}
-
-void save_dbscan_model(const DBSCANResult& db, const vector<vector<double>>& data,
-                       double eps, int min_pts, const string& filename) {
-    ofstream f(filename);
-    if (!f.is_open()) { cerr << "Cannot write " << filename << endl; return; }
+// ===== GPU Pipeline =====
+void gpu_rff_transform(const vector<vector<double>>& data,
+                        const vector<float>& Omega_h, const vector<float>& phi_h,
+                        vector<vector<float>>& out, int D_in, int D_rff) {
     int N = data.size();
-    int D = N > 0 ? (int)data[0].size() : 0;
-    f << eps << " " << min_pts << "\n";
-    f << db.n_clusters << " " << db.n_noise << "\n";
-    f << N << " " << D << "\n";
-    for (int i = 0; i < N; i++) {
-        f << db.labels[i];
-        for (int j = 0; j < D; j++) f << " " << data[i][j];
-        f << "\n";
-    }
-    f.close();
-    cout << "DBSCAN model saved to " << filename << endl;
+    // Flatten input to float
+    vector<float> flat_data(N * D_in);
+    for (int i = 0; i < N; i++)
+        for (int d = 0; d < D_in; d++)
+            flat_data[i * D_in + d] = (float)data[i][d];
+
+    // GPU allocations
+    float *d_data, *d_Omega, *d_phi, *d_out;
+    CUDA_CHECK(cudaMalloc(&d_data,  N * D_in  * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_Omega, D_rff * D_in * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_phi,   D_rff         * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_out,   N * D_rff     * sizeof(float)));
+
+    CUDA_CHECK(cudaMemcpy(d_data,  flat_data.data(),  N * D_in * sizeof(float),  cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_Omega, Omega_h.data(),    D_rff * D_in * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_phi,   phi_h.data(),      D_rff * sizeof(float),      cudaMemcpyHostToDevice));
+
+    dim3 block(16, 16);
+    dim3 grid((N + 15) / 16, (D_rff + 15) / 16);
+    rff_transform_kernel<<<grid, block>>>(d_data, d_Omega, d_phi, d_out, N, D_in, D_rff);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    // Copy back
+    vector<float> flat_out(N * D_rff);
+    CUDA_CHECK(cudaMemcpy(flat_out.data(), d_out, N * D_rff * sizeof(float), cudaMemcpyDeviceToHost));
+    out.resize(N, vector<float>(D_rff));
+    for (int i = 0; i < N; i++)
+        for (int d = 0; d < D_rff; d++)
+            out[i][d] = flat_out[i * D_rff + d];
+
+    cudaFree(d_data); cudaFree(d_Omega); cudaFree(d_phi); cudaFree(d_out);
 }
 
+void gpu_ovr_predict(const vector<vector<float>>& rff_data, const OvrModel& model,
+                      vector<int>& preds, vector<float>& confs) {
+    int N = rff_data.size();
+    int D_rff = model.D_rff, nc = model.n_classes;
+
+    vector<float> flat_rff(N * D_rff);
+    for (int i = 0; i < N; i++)
+        for (int d = 0; d < D_rff; d++)
+            flat_rff[i * D_rff + d] = rff_data[i][d];
+
+    float *d_rff, *d_W, *d_confs; int *d_preds;
+    CUDA_CHECK(cudaMalloc(&d_rff,   N * D_rff * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_W,     nc * (D_rff + 1) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_preds, N * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_confs, N * sizeof(float)));
+
+    CUDA_CHECK(cudaMemcpy(d_rff, flat_rff.data(),    N * D_rff * sizeof(float),    cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_W,   model.W.data(), nc * (D_rff + 1) * sizeof(float), cudaMemcpyHostToDevice));
+
+    int block = 256;
+    int grid  = (N + block - 1) / block;
+    ovr_predict_kernel<<<grid, block>>>(d_rff, d_W, d_preds, d_confs, N, D_rff, nc);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    preds.resize(N); confs.resize(N);
+    CUDA_CHECK(cudaMemcpy(preds.data(), d_preds, N * sizeof(int),   cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(confs.data(), d_confs, N * sizeof(float), cudaMemcpyDeviceToHost));
+
+    cudaFree(d_rff); cudaFree(d_W); cudaFree(d_preds); cudaFree(d_confs);
+}
+
+DBSCANResult gpu_dbscan(const vector<vector<double>>& data, double eps, int min_pts) {
+    int N = data.size(), D = data[0].size();
+    vector<float> flat(N * D);
+    for (int i = 0; i < N; i++)
+        for (int d = 0; d < D; d++)
+            flat[i * D + d] = (float)data[i][d];
+
+    float *d_data, *d_dist;
+    CUDA_CHECK(cudaMalloc(&d_data, N * D * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_dist, (size_t)N * N * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_dist, 0, (size_t)N * N * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_data, flat.data(), N * D * sizeof(float), cudaMemcpyHostToDevice));
+
+    dim3 block(16, 16);
+    dim3 grid((N + 15) / 16, (N + 15) / 16);
+    distance_matrix_kernel<<<grid, block>>>(d_data, d_dist, N, D);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    vector<float> dist_h((size_t)N * N);
+    CUDA_CHECK(cudaMemcpy(dist_h.data(), d_dist, (size_t)N * N * sizeof(float), cudaMemcpyDeviceToHost));
+    cudaFree(d_data); cudaFree(d_dist);
+
+    return cpu_dbscan_from_matrix(dist_h, N, eps, min_pts);
+}
+
+// ===== Main =====
 int main() {
-    cout << "=== Network IDS: CUDA C++ ===" << endl;
+    cout << "=== Network IDS: CUDA GPU ===" << endl;
+    cout << "  Algorithm: GPU RFF Transform + OvR Linear SVM + GPU DBSCAN" << endl;
 
-    // Check GPU
-    int device_count;
-    cudaGetDeviceCount(&device_count);
-    if (device_count == 0) {
-        cout << "No CUDA GPU found. This code requires an NVIDIA GPU." << endl;
-        cout << "Falling back to CPU simulation for demonstration..." << endl;
-    } else {
-        cudaDeviceProp prop;
-        cudaGetDeviceProperties(&prop, 0);
-        cout << "GPU: " << prop.name << " (" << prop.multiProcessorCount << " SMs)" << endl;
-    }
-
-    auto train_data = load_csv("data/train_data.csv");
+    auto train_data   = load_csv("data/train_data.csv");
     auto train_labels = load_labels("data/train_labels.csv");
-    auto test_data = load_csv("data/test_data.csv");
-    auto test_labels = load_labels("data/test_labels.csv");
+    auto test_data    = load_csv("data/test_data.csv");
+    auto test_labels  = load_labels("data/test_labels.csv");
 
-    int N_train = train_data.size(), N_test = test_data.size(), D = train_data[0].size();
+    int N_train = train_data.size(), N_test = test_data.size();
+    int D = train_data[0].size();
     int n_classes = detect_n_classes(train_labels);
-    cout << "Train: " << N_train << " | Test: " << N_test << " | Features: " << D << " | Classes: " << n_classes << endl;
+    cout << "Train: " << N_train << " | Test: " << N_test
+         << " | Features: " << D << " | Classes: " << n_classes << endl;
 
-    Timer total_timer; total_timer.start();
-    long long total_flops = 0;
+    // ===== Step 1: Generate RFF parameters (CPU) =====
+    cout << "\n--- Generating RFF Parameters (D_rff=" << D_RFF << ", gamma=" << GAMMA << ") ---" << endl;
+    mt19937 rng(42);
+    normal_distribution<float>  norm_dist(0.0f, (float)sqrt(2.0 * GAMMA));
+    uniform_real_distribution<float> unif_dist(0.0f, (float)(2.0 * M_PI));
 
-    // SVM Training (CPU - 1-vs-1)
-    cout << "\n--- SVM Training (CPU) ---" << endl;
+    vector<float> Omega_h(D_RFF * D), phi_h(D_RFF);
+    for (auto& v : Omega_h) v = norm_dist(rng);
+    for (auto& v : phi_h)   v = unif_dist(rng);
+
+    // ===== Step 2: GPU RFF Transform =====
+    cout << "\n--- GPU RFF Transform ---" << endl;
+    Timer t_rff; t_rff.start();
+    vector<vector<float>> rff_train, rff_test;
+    gpu_rff_transform(train_data, Omega_h, phi_h, rff_train, D, D_RFF);
+    gpu_rff_transform(test_data,  Omega_h, phi_h, rff_test,  D, D_RFF);
+    double rff_time = t_rff.ms();
+    long long total_flops = (long long)(N_train + N_test) * D_RFF * (D + 1);
+    cout << "RFF transform: " << fixed << setprecision(1) << rff_time << " ms" << endl;
+
+    // ===== Step 3: CPU OvR SVM Training (on RFF features) =====
+    cout << "\n--- OvR Linear SVM Training (SGD + Cosine LR + Class Weights) ---" << endl;
+    OvrModel model;
+    model.n_classes = n_classes;
+    model.D_rff = D_RFF;
     Timer t1; t1.start();
-    vector<SimpleSVM> models;
-    vector<pair<int,int>> class_pairs;
-    for (int i = 0; i < n_classes; i++) {
-        for (int j = i+1; j < n_classes; j++) {
-            SimpleSVM m; m.train(train_data, train_labels, i, j, 200, 0.01);
-            models.push_back(m);
-            class_pairs.push_back({i,j});
-        }
-    }
+    model.train(rff_train, train_labels, /*epochs=*/30, /*lr=*/0.05f);
     double svm_train_time = t1.ms();
+    total_flops += (long long)30 * N_train * n_classes * (2 * D_RFF + 3);
     cout << "SVM training: " << fixed << setprecision(1) << svm_train_time << " ms" << endl;
 
-    // SVM Prediction (GPU-accelerated)
-    cout << "\n--- SVM Prediction (GPU) ---" << endl;
+    // ===== Step 4: GPU OvR Predict =====
+    cout << "\n--- GPU OvR Predict ---" << endl;
     Timer t2; t2.start();
-    vector<int> predictions;
-    vector<double> confidences;
-    gpu_svm_predict(models, test_data, n_classes, predictions, confidences);
+    vector<int> all_preds;
+    vector<float> all_confs;
+    gpu_ovr_predict(rff_test, model, all_preds, all_confs);
     double svm_pred_time = t2.ms();
+    total_flops += (long long)N_test * n_classes * (D_RFF + 1);
+    cout << "SVM prediction: " << fixed << setprecision(1) << svm_pred_time << " ms" << endl;
 
-    int total_sv = 0;
-    for (auto& m : models) total_sv += m.sv.size();
-    total_flops += (long long)N_test * total_sv * (3*D+2);
-    cout << "SVM prediction (GPU): " << fixed << setprecision(1) << svm_pred_time << " ms" << endl;
-
-    // Split confident/uncertain
-    double threshold = 0.05;
-    vector<int> final_preds(N_test);
-    vector<int> unc_idx;
-    vector<vector<double>> unc_data;
+    // ===== Step 5: Split confident vs uncertain =====
+    float threshold = model.conf_threshold;
+    vector<int> final_predictions(N_test);
+    vector<int> uncertain_idx;
+    vector<vector<double>> uncertain_data;
 
     for (int i = 0; i < N_test; i++) {
-        if (confidences[i] >= threshold) {
-            final_preds[i] = predictions[i];
+        if (all_confs[i] >= threshold) {
+            final_predictions[i] = all_preds[i];
         } else {
-            final_preds[i] = -1;
-            unc_idx.push_back(i);
-            unc_data.push_back(test_data[i]);
+            final_predictions[i] = -1;
+            uncertain_idx.push_back(i);
+            uncertain_data.push_back(test_data[i]);
         }
     }
-    cout << "Confident: " << (N_test-(int)unc_idx.size()) << " | Uncertain: " << unc_idx.size() << endl;
 
-    // DBSCAN with GPU distance matrix
-    double dbscan_time = 0;
-    // Cap DBSCAN samples to avoid OOM on large distance matrices
-    if ((int)unc_data.size() > MAX_DBSCAN) {
-        unc_data.resize(MAX_DBSCAN);
-        unc_idx.resize(MAX_DBSCAN);
+    if ((int)uncertain_data.size() > MAX_DBSCAN) {
+        for (size_t i = MAX_DBSCAN; i < uncertain_idx.size(); i++)
+            final_predictions[uncertain_idx[i]] = all_preds[uncertain_idx[i]];
+        uncertain_idx.resize(MAX_DBSCAN);
+        uncertain_data.resize(MAX_DBSCAN);
     }
-    if (unc_data.size() > 1) {
-        cout << "\n--- DBSCAN (GPU distance matrix) on " << unc_data.size() << " samples ---" << endl;
+    cout << "Confident: " << (N_test - (int)uncertain_idx.size())
+         << " | Uncertain: " << uncertain_idx.size() << endl;
+
+    // ===== Step 6: GPU DBSCAN on uncertain subset =====
+    double dbscan_time = 0;
+    if (uncertain_data.size() > 1) {
+        cout << "\n--- GPU DBSCAN (distance matrix on GPU) ---" << endl;
         Timer t3; t3.start();
-        auto db = gpu_dbscan(unc_data, 1.5, D+1);
+        double dbscan_eps = 2.0;
+        int dbscan_min_pts = max(3, D / 10);
+        auto db = gpu_dbscan(uncertain_data, dbscan_eps, dbscan_min_pts);
         dbscan_time = t3.ms();
-        total_flops += db.flops;
+        total_flops += (long long)uncertain_data.size() * uncertain_data.size() * (3 * D + 1) / 2;
         cout << "DBSCAN: " << fixed << setprecision(1) << dbscan_time << " ms"
              << " | Clusters: " << db.n_clusters << " | Noise: " << db.n_noise << endl;
 
-        for (size_t i = 0; i < unc_idx.size(); i++)
-            final_preds[unc_idx[i]] = (db.labels[i] == -1) ? -1 : predictions[unc_idx[i]];
-
-        // Save DBSCAN model
-        save_dbscan_model(db, unc_data, 1.5, D+1, "cuda_dbscan_model.txt");
+        for (size_t i = 0; i < uncertain_idx.size(); i++)
+            final_predictions[uncertain_idx[i]] = (db.cluster_labels[i] == -1)
+                                                   ? -1 : all_preds[uncertain_idx[i]];
     }
 
-    double total_time = total_timer.ms();
-
-    // Results
+    // ===== Results =====
     int correct = 0, classified = 0;
-    for (int i = 0; i < N_test; i++) {
-        if (final_preds[i] >= 0) { classified++; if (final_preds[i] == test_labels[i]) correct++; }
+    for (int i = 0; i < N_test; i++)
+        if (final_predictions[i] >= 0) { classified++; if (final_predictions[i] == test_labels[i]) correct++; }
+
+    double acc = classified > 0 ? 100.0 * correct / classified : 0;
+    cout << "\n=== Results ===" << endl;
+    cout << "Accuracy: " << fixed << setprecision(2) << acc << "%" << endl;
+    cout << "Timing: RFF=" << fixed << setprecision(1) << rff_time << "ms"
+         << " Train="  << svm_train_time << "ms"
+         << " Predict=" << svm_pred_time  << "ms"
+         << " DBSCAN=" << dbscan_time    << "ms" << endl;
+
+    // Train accuracy (on subset of RFF-transformed train data)
+    int sample_n = min(N_train, 20000);
+    int step = max(1, N_train / sample_n);
+    vector<int> train_preds_sample, train_labels_sample;
+    vector<vector<float>> rff_train_sample;
+    for (int i = 0; i < N_train && (int)rff_train_sample.size() < sample_n; i += step) {
+        rff_train_sample.push_back(rff_train[i]);
+        train_labels_sample.push_back(train_labels[i]);
     }
-    cout << "\nAccuracy: " << fixed << setprecision(2) << (100.0*correct/max(1,classified)) << "%" << endl;
+    vector<float> dummy_confs;
+    gpu_ovr_predict(rff_train_sample, model, train_preds_sample, dummy_confs);
+    int tr_correct = 0;
+    for (int i = 0; i < (int)train_labels_sample.size(); i++)
+        if (train_preds_sample[i] == train_labels_sample[i]) tr_correct++;
+    double train_acc = 100.0 * tr_correct / (int)train_labels_sample.size();
+    cout << "Train Accuracy: " << fixed << setprecision(2) << train_acc << "%" << endl;
 
-    double gflops = (total_flops / 1e9) / (total_time / 1000.0);
-    cout << "\n========================================" << endl;
-    cout << "  Technique:  CUDA C++" << endl;
-    cout << "  Time:       " << fixed << setprecision(1) << total_time << " ms" << endl;
-    cout << "  GFLOPS:     " << fixed << setprecision(4) << gflops << endl;
-    cout << "========================================" << endl;
-    cout << "Timing: Train=" << fixed << setprecision(1) << svm_train_time
-         << "ms Predict=" << svm_pred_time << "ms DBSCAN=" << dbscan_time
-         << "ms Total=" << total_time << "ms" << endl;
-
-    // Save models and predictions
-    save_svm_models(models, n_classes, "cuda_svm_model.txt");
-    save_predictions(final_preds, "cuda_predictions.csv");
-    save_epoch_errors_cuda(models, "cuda_epoch_errors.csv");
-    double train_acc_cuda = compute_train_accuracy_cuda(models, n_classes, train_data, train_labels);
-    double test_acc_cuda = 100.0 * correct / max(1, classified);
-    cout << "Train Accuracy: " << fixed << setprecision(2) << train_acc_cuda << "%" << endl;
-    { ofstream fa("cuda_accuracy.csv"); fa << fixed << setprecision(4) << train_acc_cuda << "," << test_acc_cuda << "\n"; }
+    // Save outputs
+    model.save("cuda_ovr_svm_model.txt");
+    { ofstream fp("cuda_predictions.csv"); for (int p : final_predictions) fp << p << "\n"; }
+    { ofstream fa("cuda_accuracy.csv"); fa << fixed << setprecision(4) << train_acc << "," << acc << "\n"; }
+    cout << "Predictions saved to cuda_predictions.csv" << endl;
 
     return 0;
 }

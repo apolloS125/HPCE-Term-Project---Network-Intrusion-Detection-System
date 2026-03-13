@@ -429,6 +429,248 @@ DBSCANResult dbscan(const vector<vector<double>>& data, double eps, int min_pts)
     return result;
 }
 
+// ===================== RFF TRANSFORMER =====================
+// Approximates RBF kernel via Random Fourier Features:
+//   z(x) = sqrt(2/D_rff) * cos(Omega * x + phi)
+// where Omega ~ N(0, 2*gamma) and phi ~ U(0, 2*pi).
+struct RffTransformer {
+    int D_in;    // input dimension
+    int D_rff;   // RFF dimension (e.g. 1024 or 2048)
+    double gamma; // RBF gamma
+    vector<double> Omega; // D_rff x D_in (row-major)
+    vector<double> phi;   // D_rff
+
+    RffTransformer() : D_in(0), D_rff(0), gamma(0.1) {}
+    RffTransformer(int d_in, int d_rff, double g, unsigned seed = 42)
+        : D_in(d_in), D_rff(d_rff), gamma(g) {
+        // Box-Muller for N(0, 2*gamma) samples
+        Omega.resize((size_t)D_rff * D_in);
+        phi.resize(D_rff);
+        srand(seed);
+        double scale = sqrt(2.0 * gamma);
+        auto randn = [&]() -> double {
+            double u1 = ((double)rand() + 1.0) / ((double)RAND_MAX + 2.0);
+            double u2 = ((double)rand() + 1.0) / ((double)RAND_MAX + 2.0);
+            return scale * sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
+        };
+        auto randu = [&]() -> double {
+            return 2.0 * M_PI * ((double)rand() / (double)RAND_MAX);
+        };
+        for (auto& v : Omega) v = randn();
+        for (auto& v : phi)   v = randu();
+    }
+
+    // Transform a single sample x -> z of length D_rff
+    vector<double> transform(const vector<double>& x) const {
+        double norm = sqrt(2.0 / D_rff);
+        vector<double> z(D_rff);
+        for (int r = 0; r < D_rff; r++) {
+            double dot = phi[r];
+            for (int d = 0; d < D_in; d++)
+                dot += Omega[(size_t)r * D_in + d] * x[d];
+            z[r] = norm * cos(dot);
+        }
+        return z;
+    }
+
+    // Batch transform: returns N x D_rff matrix (row-major flat)
+    vector<vector<double>> transform_batch(const vector<vector<double>>& data) const {
+        vector<vector<double>> out(data.size());
+        for (size_t i = 0; i < data.size(); i++)
+            out[i] = transform(data[i]);
+        return out;
+    }
+
+    void save(const string& filename) const {
+        ofstream f(filename);
+        f << D_in << " " << D_rff << " " << gamma << "\n";
+        for (double v : Omega) f << v << " ";
+        f << "\n";
+        for (double v : phi)   f << v << " ";
+        f << "\n";
+        cout << "RFF params saved to " << filename << "\n";
+    }
+    void load(const string& filename) {
+        ifstream f(filename);
+        f >> D_in >> D_rff >> gamma;
+        Omega.resize((size_t)D_rff * D_in);
+        phi.resize(D_rff);
+        for (auto& v : Omega) f >> v;
+        for (auto& v : phi)   f >> v;
+    }
+};
+
+// ===================== ONE-VS-REST LINEAR SVM (RFF-based) =====================
+// Trains K binary linear SVMs (K = n_classes) on RFF-transformed features.
+// Loss: Hinge + L2.  Optimizer: SGD with cosine-decay LR + class weighting.
+struct OvrLinearSVM {
+    int n_classes;
+    int D_rff;
+    double lr;          // initial learning rate
+    int max_epochs;     // epochs over full dataset
+    double lambda;      // L2 regularization
+    double conf_threshold; // confidence gate for DBSCAN hand-off
+
+    // Model weights: [K, D_rff+1] (last column = bias)
+    vector<vector<double>> W; // [n_classes][D_rff+1]
+
+    // Per-epoch training loss by class
+    vector<vector<double>> epoch_losses; // [n_classes][epochs]
+
+    OvrLinearSVM(int nc = 4, int d_rff = 1024, double learning_rate = 0.01,
+                 int epochs = 50, double reg = 1e-4, double conf_thresh = 0.3)
+        : n_classes(nc), D_rff(d_rff), lr(learning_rate),
+          max_epochs(epochs), lambda(reg), conf_threshold(conf_thresh) {}
+
+    // Return cosine-annealed learning rate
+    double cosine_lr(int epoch) const {
+        double t = (double)epoch / max_epochs;
+        return lr * 0.5 * (1.0 + cos(M_PI * t));
+    }
+
+    // Compute class weights (inverse frequency)
+    vector<double> compute_class_weights(const vector<int>& labels) const {
+        vector<int> counts(n_classes, 0);
+        for (int l : labels) if (l >= 0 && l < n_classes) counts[l]++;
+        double total = labels.size();
+        vector<double> w(n_classes, 1.0);
+        for (int c = 0; c < n_classes; c++)
+            if (counts[c] > 0) w[c] = total / (n_classes * counts[c]);
+        return w;
+    }
+
+    // Train on RFF-transformed data
+    // rff_data: N x D_rff,  labels: N
+    long long train(const vector<vector<double>>& rff_data, const vector<int>& labels) {
+        int N = rff_data.size();
+        // Initialize weights to zero
+        W.assign(n_classes, vector<double>(D_rff + 1, 0.0));
+        epoch_losses.assign(n_classes, vector<double>());
+
+        auto class_w = compute_class_weights(labels);
+
+        long long total_flops = 0;
+        // Each epoch: for each class c, loop over all samples and apply SGD
+        for (int ep = 0; ep < max_epochs; ep++) {
+            double eta = cosine_lr(ep);
+            for (int c = 0; c < n_classes; c++) {
+                double loss_sum = 0.0;
+                for (int i = 0; i < N; i++) {
+                    // y_i ∈ {+1, -1}
+                    double yi = (labels[i] == c) ? 1.0 : -1.0;
+                    // score = W[c] · z + b
+                    const auto& z = rff_data[i];
+                    double score = W[c][D_rff]; // bias
+                    for (int d = 0; d < D_rff; d++)
+                        score += W[c][d] * z[d];
+                    total_flops += D_rff;
+
+                    double hinge = max(0.0, 1.0 - yi * score);
+                    loss_sum += class_w[c] * hinge;
+
+                    // SGD update if violated margin
+                    if (hinge > 0.0) {
+                        double g = -yi * class_w[c] * eta;
+                        for (int d = 0; d < D_rff; d++)
+                            W[c][d] += -g * z[d];
+                        W[c][D_rff] += -g; // bias update
+                        total_flops += 2 * D_rff;
+                    }
+                }
+                // L2 regularization (weight decay, skip bias)
+                for (int d = 0; d < D_rff; d++)
+                    W[c][d] *= (1.0 - eta * lambda);
+
+                epoch_losses[c].push_back(loss_sum / N);
+            }
+        }
+        return total_flops;
+    }
+
+    // Predict a single RFF-transformed sample; returns (class, confidence)
+    // confidence = max_score - second_max_score (margin)
+    pair<int, double> predict_one(const vector<double>& z) const {
+        vector<double> scores(n_classes);
+        for (int c = 0; c < n_classes; c++) {
+            double s = W[c][D_rff]; // bias
+            for (int d = 0; d < D_rff; d++) s += W[c][d] * z[d];
+            scores[c] = s;
+        }
+        int best = (int)(max_element(scores.begin(), scores.end()) - scores.begin());
+        double second = -1e30;
+        for (int c = 0; c < n_classes; c++)
+            if (c != best && scores[c] > second) second = scores[c];
+        double confidence = scores[best] - second; // margin
+        return {best, confidence};
+    }
+
+    // Batch predict on raw data (performs RFF transform internally)
+    struct PredResult {
+        vector<int> predictions;
+        vector<double> confidences;
+        long long flops;
+    };
+
+    PredResult predict(const vector<vector<double>>& rff_data) const {
+        int N = rff_data.size();
+        PredResult res;
+        res.predictions.resize(N);
+        res.confidences.resize(N);
+        res.flops = (long long)N * n_classes * (D_rff + 1);
+        for (int i = 0; i < N; i++) {
+            auto [p, c] = predict_one(rff_data[i]);
+            res.predictions[i] = p;
+            res.confidences[i] = c;
+        }
+        return res;
+    }
+
+    void save_model(const string& filename) const {
+        ofstream f(filename);
+        f << n_classes << " " << D_rff << " " << lr << " "
+          << max_epochs << " " << lambda << " " << conf_threshold << "\n";
+        for (int c = 0; c < n_classes; c++) {
+            for (int d = 0; d <= D_rff; d++) {
+                f << W[c][d];
+                if (d < D_rff) f << " ";
+            }
+            f << "\n";
+        }
+        cout << "OvR SVM model saved to " << filename << "\n";
+    }
+
+    void load_model(const string& filename) {
+        ifstream f(filename);
+        f >> n_classes >> D_rff >> lr >> max_epochs >> lambda >> conf_threshold;
+        W.assign(n_classes, vector<double>(D_rff + 1));
+        for (int c = 0; c < n_classes; c++)
+            for (int d = 0; d <= D_rff; d++)
+                f >> W[c][d];
+    }
+};
+
+// Save per-epoch loss (OvR format)
+void save_epoch_losses(const OvrLinearSVM& svm, const string& filename) {
+    ofstream f(filename);
+    f << "class,epoch,loss\n";
+    for (int c = 0; c < svm.n_classes; c++)
+        for (int e = 0; e < (int)svm.epoch_losses[c].size(); e++)
+            f << c << "," << (e + 1) << "," << fixed << setprecision(6)
+              << svm.epoch_losses[c][e] << "\n";
+    cout << "OvR epoch losses saved to " << filename << "\n";
+}
+
+// Compute train accuracy for OvR SVM on RFF data
+double compute_train_accuracy_ovr(const OvrLinearSVM& svm,
+                                   const vector<vector<double>>& rff_data,
+                                   const vector<int>& labels) {
+    auto res = svm.predict(rff_data);
+    int correct = 0;
+    for (int i = 0; i < (int)labels.size(); i++)
+        if (res.predictions[i] == labels[i]) correct++;
+    return 100.0 * correct / (int)labels.size();
+}
+
 // ===================== FULL PIPELINE =====================
 struct PipelineResult {
     vector<int> final_predictions;
