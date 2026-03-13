@@ -1,0 +1,936 @@
+[17:38:33] Loading data...
+[17:38:43] N_train=588717  N_test=756226  IN_F=52  N_RFF=4096  gamma=0.0500
+[17:38:43] Sampling RFF parameters...
+[17:38:43] Initialising GPUs and computing RFF training features...
+[17:38:44]   GPU 0: 147179 samples transformed.
+[17:38:44]   GPU 1: 147179 samples transformed.
+[17:38:45]   GPU 2: 147179 samples transformed.
+[17:38:45]   GPU 3: 147180 samples transformed.
+[17:38:45] GPU init complete. Beginning training.
+
+
+[17:38:47] === Epoch 1 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.4909    0.9876    0.6558     38404
+  DoS                 0.7498    0.9132    0.8235     58124
+  NormalTraffic       0.9973    0.8888    0.9399    628518
+  PortScan            0.6084    0.9846    0.7520     27208
+  macro avg           0.7116    0.9436    0.7928    752254
+  Accuracy (train classes): 0.8992   train=0.9884   gap=+0.0892   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.8992 — model saved.
+
+
+[17:38:48] === Epoch 2 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.5453    0.9917    0.7037     38404
+  DoS                 0.8322    0.9292    0.8780     58124
+  NormalTraffic       0.9989    0.8995    0.9466    628518
+  PortScan            0.5264    0.9968    0.6889     27208
+  macro avg           0.7257    0.9543    0.8043    752254
+  Accuracy (train classes): 0.9100   train=0.9917   gap=+0.0817   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.9100 — model saved.
+
+[17:38:48] epoch 3  step   100  lr=5.00e-02  loss=0.1947
+
+[17:38:50] === Epoch 3 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7324    0.9972    0.8445     38404
+  DoS                 0.7097    0.9793    0.8230     58124
+  NormalTraffic       0.9990    0.9040    0.9491    628518
+  PortScan            0.5317    0.9975    0.6937     27208
+  macro avg           0.7432    0.9695    0.8276    752254
+  Accuracy (train classes): 0.9179   train=0.9967   gap=+0.0788   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.9179 — model saved.
+
+
+[17:38:51] === Epoch 4 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7427    0.9988    0.8519     38404
+  DoS                 0.7028    0.9817    0.8192     58124
+  NormalTraffic       0.9991    0.9051    0.9498    628518
+  PortScan            0.5427    0.9979    0.7030     27208
+  macro avg           0.7468    0.9709    0.8310    752254
+  Accuracy (train classes): 0.9192   train=0.9986   gap=+0.0794   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.9192 — model saved.
+
+
+[17:38:53] === Epoch 5 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7525    0.9988    0.8583     38404
+  DoS                 0.7192    0.9821    0.8303     58124
+  NormalTraffic       0.9991    0.9207    0.9583    628518
+  PortScan            0.6357    0.9975    0.7765     27208
+  macro avg           0.7766    0.9748    0.8559    752254
+  Accuracy (train classes): 0.9322   train=0.9987   gap=+0.0665   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.9322 — model saved.
+
+[17:38:53] epoch 6  step   200  lr=4.99e-02  loss=0.1586
+
+[17:38:55] === Epoch 6 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.6803    0.9990    0.8094     38404
+  DoS                 0.7088    0.9826    0.8236     58124
+  NormalTraffic       0.9991    0.9099    0.9524    628518
+  PortScan            0.6330    0.9971    0.7744     27208
+  macro avg           0.7553    0.9721    0.8399    752254
+  Accuracy (train classes): 0.9232   train=0.9989   gap=+0.0757   holdout=3972
+
+
+[17:38:56] === Epoch 7 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7481    0.9989    0.8555     38404
+  DoS                 0.7185    0.9826    0.8300     58124
+  NormalTraffic       0.9991    0.9173    0.9564    628518
+  PortScan            0.6107    0.9982    0.7578     27208
+  macro avg           0.7691    0.9742    0.8499    752254
+  Accuracy (train classes): 0.9294   train=0.9988   gap=+0.0694   holdout=3972
+
+
+[17:38:58] === Epoch 8 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7346    0.9990    0.8467     38404
+  DoS                 0.7159    0.9831    0.8285     58124
+  NormalTraffic       0.9992    0.9169    0.9563    628518
+  PortScan            0.6253    0.9982    0.7689     27208
+  macro avg           0.7687    0.9743    0.8501    752254
+  Accuracy (train classes): 0.9291   train=0.9989   gap=+0.0698   holdout=3972
+
+[17:38:58] epoch 9  step   300  lr=4.98e-02  loss=0.1481
+
+[17:38:59] === Epoch 9 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7577    0.9989    0.8618     38404
+  DoS                 0.7182    0.9847    0.8306     58124
+  NormalTraffic       0.9994    0.9166    0.9562    628518
+  PortScan            0.5973    0.9980    0.7473     27208
+  macro avg           0.7682    0.9745    0.8490    752254
+  Accuracy (train classes): 0.9290   train=0.9988   gap=+0.0697   holdout=3972
+
+
+[17:39:01] === Epoch 10 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7411    0.9990    0.8509     38404
+  DoS                 0.6940    0.9848    0.8142     58124
+  NormalTraffic       0.9994    0.9104    0.9528    628518
+  PortScan            0.5969    0.9980    0.7470     27208
+  macro avg           0.7578    0.9730    0.8412    752254
+  Accuracy (train classes): 0.9238   train=0.9988   gap=+0.0750   holdout=3972
+
+
+[17:39:03] === Epoch 11 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7594    0.9989    0.8628     38404
+  DoS                 0.7202    0.9826    0.8312     58124
+  NormalTraffic       0.9990    0.9195    0.9576    628518
+  PortScan            0.6176    0.9980    0.7630     27208
+  macro avg           0.7741    0.9748    0.8537    752254
+  Accuracy (train classes): 0.9313   train=0.9988   gap=+0.0675   holdout=3972
+
+[17:39:03] epoch 12  step   400  lr=4.96e-02  loss=0.1482
+
+[17:39:04] === Epoch 12 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7253    0.9992    0.8405     38404
+  DoS                 0.7095    0.9836    0.8244     58124
+  NormalTraffic       0.9992    0.9142    0.9548    628518
+  PortScan            0.6215    0.9980    0.7660     27208
+  macro avg           0.7639    0.9737    0.8464    752254
+  Accuracy (train classes): 0.9270   train=0.9990   gap=+0.0720   holdout=3972
+
+
+[17:39:06] === Epoch 13 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7569    0.9990    0.8612     38404
+  DoS                 0.7335    0.9821    0.8398     58124
+  NormalTraffic       0.9991    0.9242    0.9602    628518
+  PortScan            0.6411    0.9977    0.7806     27208
+  macro avg           0.7826    0.9757    0.8605    752254
+  Accuracy (train classes): 0.9351   train=0.9989   gap=+0.0638   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.9351 — model saved.
+
+
+[17:39:07] === Epoch 14 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7346    0.9991    0.8467     38404
+  DoS                 0.7167    0.9823    0.8287     58124
+  NormalTraffic       0.9991    0.9189    0.9573    628518
+  PortScan            0.6420    0.9978    0.7813     27208
+  macro avg           0.7731    0.9745    0.8535    752254
+  Accuracy (train classes): 0.9307   train=0.9989   gap=+0.0682   holdout=3972
+
+[17:39:07] epoch 15  step   500  lr=4.94e-02  loss=0.1859
+
+[17:39:09] === Epoch 15 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7594    0.9989    0.8628     38404
+  DoS                 0.7124    0.9829    0.8261     58124
+  NormalTraffic       0.9992    0.9181    0.9569    628518
+  PortScan            0.6167    0.9982    0.7624     27208
+  macro avg           0.7719    0.9745    0.8521    752254
+  Accuracy (train classes): 0.9301   train=0.9989   gap=+0.0688   holdout=3972
+
+
+[17:39:11] === Epoch 16 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7596    0.9989    0.8630     38404
+  DoS                 0.7199    0.9825    0.8310     58124
+  NormalTraffic       0.9991    0.9228    0.9594    628518
+  PortScan            0.6480    0.9973    0.7856     27208
+  macro avg           0.7816    0.9754    0.8597    752254
+  Accuracy (train classes): 0.9340   train=0.9988   gap=+0.0648   holdout=3972
+
+
+[17:39:12] === Epoch 17 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7334    0.9990    0.8458     38404
+  DoS                 0.7202    0.9824    0.8311     58124
+  NormalTraffic       0.9992    0.9167    0.9562    628518
+  PortScan            0.6170    0.9982    0.7626     27208
+  macro avg           0.7674    0.9741    0.8489    752254
+  Accuracy (train classes): 0.9289   train=0.9989   gap=+0.0699   holdout=3972
+
+[17:39:12] epoch 18  step   600  lr=4.91e-02  loss=0.1588
+
+[17:39:14] === Epoch 18 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7493    0.9990    0.8563     38404
+  DoS                 0.7220    0.9826    0.8324     58124
+  NormalTraffic       0.9992    0.9137    0.9545    628518
+  PortScan            0.5751    0.9983    0.7298     27208
+  macro avg           0.7614    0.9734    0.8432    752254
+  Accuracy (train classes): 0.9264   train=0.9989   gap=+0.0724   holdout=3972
+
+
+[17:39:15] === Epoch 19 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7489    0.9990    0.8560     38404
+  DoS                 0.7205    0.9826    0.8314     58124
+  NormalTraffic       0.9990    0.9221    0.9590    628518
+  PortScan            0.6514    0.9974    0.7880     27208
+  macro avg           0.7799    0.9752    0.8586    752254
+  Accuracy (train classes): 0.9334   train=0.9988   gap=+0.0654   holdout=3972
+
+[17:39:15] epoch 20  step   700  lr=4.88e-02  loss=0.1319
+
+[17:39:17] === Epoch 20 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.6508    0.9991    0.7882     38404
+  DoS                 0.6730    0.9859    0.7999     58124
+  NormalTraffic       0.9995    0.8921    0.9428    628518
+  PortScan            0.5761    0.9982    0.7306     27208
+  macro avg           0.7249    0.9689    0.8154    752254
+  Accuracy (train classes): 0.9087   train=0.9989   gap=+0.0903   holdout=3972
+
+
+[17:39:19] === Epoch 21 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7674    0.9989    0.8679     38404
+  DoS                 0.7167    0.9827    0.8289     58124
+  NormalTraffic       0.9991    0.9198    0.9578    628518
+  PortScan            0.6181    0.9982    0.7635     27208
+  macro avg           0.7753    0.9749    0.8545    752254
+  Accuracy (train classes): 0.9315   train=0.9989   gap=+0.0673   holdout=3972
+
+
+[17:39:20] === Epoch 22 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7662    0.9989    0.8672     38404
+  DoS                 0.7179    0.9830    0.8298     58124
+  NormalTraffic       0.9992    0.9192    0.9575    628518
+  PortScan            0.6118    0.9982    0.7586     27208
+  macro avg           0.7738    0.9748    0.8533    752254
+  Accuracy (train classes): 0.9311   train=0.9988   gap=+0.0677   holdout=3972
+
+[17:39:20] epoch 23  step   800  lr=4.84e-02  loss=0.1264
+
+[17:39:22] === Epoch 23 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.6911    0.9991    0.8170     38404
+  DoS                 0.6554    0.9859    0.7874     58124
+  NormalTraffic       0.9995    0.8734    0.9322    628518
+  PortScan            0.4521    0.9982    0.6223     27208
+  macro avg           0.6995    0.9642    0.7897    752254
+  Accuracy (train classes): 0.8930   train=0.9989   gap=+0.1059   holdout=3972
+
+
+[17:39:23] === Epoch 24 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7635    0.9989    0.8655     38404
+  DoS                 0.7123    0.9829    0.8260     58124
+  NormalTraffic       0.9992    0.9176    0.9567    628518
+  PortScan            0.6091    0.9982    0.7566     27208
+  macro avg           0.7710    0.9744    0.8512    752254
+  Accuracy (train classes): 0.9297   train=0.9989   gap=+0.0691   holdout=3972
+
+
+[17:39:25] === Epoch 25 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7646    0.9989    0.8662     38404
+  DoS                 0.7160    0.9829    0.8285     58124
+  NormalTraffic       0.9991    0.9227    0.9594    628518
+  PortScan            0.6486    0.9973    0.7860     27208
+  macro avg           0.7821    0.9754    0.8600    752254
+  Accuracy (train classes): 0.9339   train=0.9988   gap=+0.0649   holdout=3972
+
+[17:39:25] epoch 26  step   900  lr=4.80e-02  loss=0.1536
+
+[17:39:27] === Epoch 26 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7681    0.9989    0.8684     38404
+  DoS                 0.7248    0.9848    0.8350     58124
+  NormalTraffic       0.9993    0.9206    0.9584    628518
+  PortScan            0.6127    0.9982    0.7593     27208
+  macro avg           0.7762    0.9756    0.8553    752254
+  Accuracy (train classes): 0.9324   train=0.9987   gap=+0.0664   holdout=3972
+
+
+[17:39:28] === Epoch 27 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7426    0.9991    0.8519     38404
+  DoS                 0.7242    0.9826    0.8338     58124
+  NormalTraffic       0.9991    0.9197    0.9578    628518
+  PortScan            0.6299    0.9979    0.7723     27208
+  macro avg           0.7739    0.9748    0.8540    752254
+  Accuracy (train classes): 0.9315   train=0.9990   gap=+0.0675   holdout=3972
+
+
+[17:39:30] === Epoch 28 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7094    0.9991    0.8297     38404
+  DoS                 0.7035    0.9920    0.8232     58124
+  NormalTraffic       0.9991    0.9134    0.9544    628518
+  PortScan            0.6524    0.9974    0.7888     27208
+  macro avg           0.7661    0.9755    0.8490    752254
+  Accuracy (train classes): 0.9269   train=0.9990   gap=+0.0721   holdout=3972
+
+[17:39:30] epoch 29  step  1000  lr=4.76e-02  loss=0.1462
+
+[17:39:31] === Epoch 29 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7824    0.9988    0.8775     38404
+  DoS                 0.7377    0.9827    0.8427     58124
+  NormalTraffic       0.9992    0.9236    0.9599    628518
+  PortScan            0.6056    0.9983    0.7539     27208
+  macro avg           0.7812    0.9758    0.8585    752254
+  Accuracy (train classes): 0.9347   train=0.9987   gap=+0.0641   holdout=3972
+
+
+[17:39:33] === Epoch 30 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7554    0.9990    0.8603     38404
+  DoS                 0.7199    0.9830    0.8311     58124
+  NormalTraffic       0.9991    0.9206    0.9582    628518
+  PortScan            0.6318    0.9978    0.7737     27208
+  macro avg           0.7766    0.9751    0.8558    752254
+  Accuracy (train classes): 0.9322   train=0.9988   gap=+0.0666   holdout=3972
+
+
+[17:39:35] === Epoch 31 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7490    0.9990    0.8561     38404
+  DoS                 0.7229    0.9833    0.8333     58124
+  NormalTraffic       0.9991    0.9214    0.9587    628518
+  PortScan            0.6407    0.9980    0.7804     27208
+  macro avg           0.7780    0.9754    0.8571    752254
+  Accuracy (train classes): 0.9329   train=0.9989   gap=+0.0660   holdout=3972
+
+[17:39:35] epoch 32  step  1100  lr=4.71e-02  loss=0.1169
+
+[17:39:36] === Epoch 32 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.6730    0.9991    0.8042     38404
+  DoS                 0.6792    0.9858    0.8043     58124
+  NormalTraffic       0.9995    0.8978    0.9459    628518
+  PortScan            0.5861    0.9983    0.7386     27208
+  macro avg           0.7345    0.9702    0.8233    752254
+  Accuracy (train classes): 0.9134   train=0.9989   gap=+0.0855   holdout=3972
+
+
+[17:39:38] === Epoch 33 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7268    0.9992    0.8415     38404
+  DoS                 0.7081    0.9838    0.8235     58124
+  NormalTraffic       0.9992    0.9148    0.9551    628518
+  PortScan            0.6272    0.9980    0.7703     27208
+  macro avg           0.7653    0.9739    0.8476    752254
+  Accuracy (train classes): 0.9274   train=0.9990   gap=+0.0716   holdout=3972
+
+
+[17:39:39] === Epoch 34 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7565    0.9990    0.8610     38404
+  DoS                 0.7320    0.9827    0.8390     58124
+  NormalTraffic       0.9991    0.9234    0.9597    628518
+  PortScan            0.6370    0.9979    0.7776     27208
+  macro avg           0.7811    0.9758    0.8593    752254
+  Accuracy (train classes): 0.9345   train=0.9989   gap=+0.0644   holdout=3972
+
+[17:39:39] epoch 35  step  1200  lr=4.65e-02  loss=0.1574
+
+[17:39:41] === Epoch 35 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7493    0.9989    0.8563     38404
+  DoS                 0.7270    0.9828    0.8358     58124
+  NormalTraffic       0.9991    0.9212    0.9586    628518
+  PortScan            0.6324    0.9979    0.7742     27208
+  macro avg           0.7769    0.9752    0.8562    752254
+  Accuracy (train classes): 0.9327   train=0.9988   gap=+0.0661   holdout=3972
+
+
+[17:39:43] === Epoch 36 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7614    0.9989    0.8641     38404
+  DoS                 0.7174    0.9826    0.8293     58124
+  NormalTraffic       0.9991    0.9219    0.9589    628518
+  PortScan            0.6416    0.9975    0.7809     27208
+  macro avg           0.7799    0.9752    0.8583    752254
+  Accuracy (train classes): 0.9332   train=0.9988   gap=+0.0655   holdout=3972
+
+
+[17:39:44] === Epoch 37 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7518    0.9990    0.8580     38404
+  DoS                 0.7311    0.9827    0.8384     58124
+  NormalTraffic       0.9992    0.9218    0.9590    628518
+  PortScan            0.6279    0.9982    0.7709     27208
+  macro avg           0.7775    0.9754    0.8566    752254
+  Accuracy (train classes): 0.9332   train=0.9990   gap=+0.0657   holdout=3972
+
+[17:39:44] epoch 38  step  1300  lr=4.59e-02  loss=0.1323
+
+[17:39:46] === Epoch 38 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7432    0.9990    0.8523     38404
+  DoS                 0.7248    0.9913    0.8374     58124
+  NormalTraffic       0.9991    0.9216    0.9588    628518
+  PortScan            0.6554    0.9971    0.7909     27208
+  macro avg           0.7806    0.9772    0.8598    752254
+  Accuracy (train classes): 0.9336   train=0.9989   gap=+0.0653   holdout=3972
+
+
+[17:39:47] === Epoch 39 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7299    0.9990    0.8435     38404
+  DoS                 0.7082    0.9829    0.8233     58124
+  NormalTraffic       0.9991    0.9163    0.9559    628518
+  PortScan            0.6369    0.9979    0.7776     27208
+  macro avg           0.7685    0.9740    0.8501    752254
+  Accuracy (train classes): 0.9286   train=0.9989   gap=+0.0703   holdout=3972
+
+[17:39:47] epoch 40  step  1400  lr=4.53e-02  loss=0.1796
+
+[17:39:49] === Epoch 40 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7587    0.9990    0.8624     38404
+  DoS                 0.7281    0.9908    0.8394     58124
+  NormalTraffic       0.9990    0.9244    0.9602    628518
+  PortScan            0.6617    0.9973    0.7955     27208
+  macro avg           0.7869    0.9779    0.8644    752254
+  Accuracy (train classes): 0.9360   train=0.9988   gap=+0.0628   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.9360 — model saved.
+
+
+[17:39:51] === Epoch 41 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7447    0.9991    0.8533     38404
+  DoS                 0.7125    0.9916    0.8292     58124
+  NormalTraffic       0.9991    0.9194    0.9576    628518
+  PortScan            0.6547    0.9973    0.7905     27208
+  macro avg           0.7777    0.9768    0.8576    752254
+  Accuracy (train classes): 0.9319   train=0.9989   gap=+0.0671   holdout=3972
+
+
+[17:39:52] === Epoch 42 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7308    0.9990    0.8441     38404
+  DoS                 0.7172    0.9826    0.8292     58124
+  NormalTraffic       0.9991    0.9156    0.9555    628518
+  PortScan            0.6154    0.9982    0.7614     27208
+  macro avg           0.7656    0.9739    0.8476    752254
+  Accuracy (train classes): 0.9280   train=0.9989   gap=+0.0709   holdout=3972
+
+[17:39:52] epoch 43  step  1500  lr=4.47e-02  loss=0.1367
+
+[17:39:54] === Epoch 43 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7105    0.9991    0.8304     38404
+  DoS                 0.6816    0.9857    0.8059     58124
+  NormalTraffic       0.9995    0.8882    0.9406    628518
+  PortScan            0.4878    0.9983    0.6553     27208
+  macro avg           0.7198    0.9678    0.8081    752254
+  Accuracy (train classes): 0.9054   train=0.9990   gap=+0.0937   holdout=3972
+
+
+[17:39:56] === Epoch 44 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7502    0.9990    0.8569     38404
+  DoS                 0.7222    0.9822    0.8323     58124
+  NormalTraffic       0.9990    0.9207    0.9582    628518
+  PortScan            0.6336    0.9979    0.7751     27208
+  macro avg           0.7762    0.9750    0.8556    752254
+  Accuracy (train classes): 0.9322   train=0.9989   gap=+0.0667   holdout=3972
+
+
+[17:39:57] === Epoch 45 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7529    0.9990    0.8586     38404
+  DoS                 0.7305    0.9831    0.8382     58124
+  NormalTraffic       0.9991    0.9215    0.9587    628518
+  PortScan            0.6260    0.9982    0.7695     27208
+  macro avg           0.7771    0.9755    0.8563    752254
+  Accuracy (train classes): 0.9330   train=0.9989   gap=+0.0659   holdout=3972
+
+[17:39:57] epoch 46  step  1600  lr=4.40e-02  loss=0.1753
+
+[17:39:59] === Epoch 46 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7561    0.9990    0.8607     38404
+  DoS                 0.7290    0.9916    0.8403     58124
+  NormalTraffic       0.9991    0.9235    0.9598    628518
+  PortScan            0.6543    0.9979    0.7904     27208
+  macro avg           0.7847    0.9780    0.8628    752254
+  Accuracy (train classes): 0.9353   train=0.9989   gap=+0.0636   holdout=3972
+
+
+[17:40:00] === Epoch 47 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7614    0.9989    0.8641     38404
+  DoS                 0.7273    0.9913    0.8390     58124
+  NormalTraffic       0.9991    0.9240    0.9601    628518
+  PortScan            0.6557    0.9977    0.7914     27208
+  macro avg           0.7859    0.9780    0.8636    752254
+  Accuracy (train classes): 0.9357   train=0.9988   gap=+0.0632   holdout=3972
+
+
+[17:40:02] === Epoch 48 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7551    0.9990    0.8601     38404
+  DoS                 0.7175    0.9830    0.8295     58124
+  NormalTraffic       0.9991    0.9212    0.9585    628518
+  PortScan            0.6416    0.9974    0.7809     27208
+  macro avg           0.7783    0.9751    0.8573    752254
+  Accuracy (train classes): 0.9327   train=0.9989   gap=+0.0662   holdout=3972
+
+[17:40:02] epoch 49  step  1700  lr=4.32e-02  loss=0.1310
+
+[17:40:04] === Epoch 49 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7310    0.9992    0.8443     38404
+  DoS                 0.7194    0.9821    0.8305     58124
+  NormalTraffic       0.9991    0.9160    0.9558    628518
+  PortScan            0.6150    0.9982    0.7611     27208
+  macro avg           0.7661    0.9739    0.8479    752254
+  Accuracy (train classes): 0.9283   train=0.9990   gap=+0.0707   holdout=3972
+
+
+[17:40:05] === Epoch 50 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7601    0.9989    0.8633     38404
+  DoS                 0.7217    0.9830    0.8323     58124
+  NormalTraffic       0.9991    0.9230    0.9596    628518
+  PortScan            0.6470    0.9975    0.7849     27208
+  macro avg           0.7820    0.9756    0.8600    752254
+  Accuracy (train classes): 0.9342   train=0.9988   gap=+0.0646   holdout=3972
+
+
+[17:40:07] === Epoch 51 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7464    0.9990    0.8544     38404
+  DoS                 0.7165    0.9837    0.8291     58124
+  NormalTraffic       0.9992    0.9195    0.9577    628518
+  PortScan            0.6370    0.9980    0.7777     27208
+  macro avg           0.7748    0.9751    0.8547    752254
+  Accuracy (train classes): 0.9314   train=0.9989   gap=+0.0675   holdout=3972
+
+[17:40:07] epoch 52  step  1800  lr=4.24e-02  loss=0.1371
+
+[17:40:08] === Epoch 52 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7299    0.9991    0.8436     38404
+  DoS                 0.7155    0.9838    0.8285     58124
+  NormalTraffic       0.9992    0.9165    0.9561    628518
+  PortScan            0.6278    0.9980    0.7708     27208
+  macro avg           0.7681    0.9744    0.8497    752254
+  Accuracy (train classes): 0.9289   train=0.9989   gap=+0.0700   holdout=3972
+
+
+[17:40:10] === Epoch 53 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7352    0.9991    0.8471     38404
+  DoS                 0.7185    0.9831    0.8302     58124
+  NormalTraffic       0.9991    0.9168    0.9562    628518
+  PortScan            0.6195    0.9978    0.7644     27208
+  macro avg           0.7681    0.9742    0.8495    752254
+  Accuracy (train classes): 0.9290   train=0.9988   gap=+0.0698   holdout=3972
+
+
+[17:40:12] === Epoch 54 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7626    0.9989    0.8649     38404
+  DoS                 0.7249    0.9828    0.8344     58124
+  NormalTraffic       0.9990    0.9235    0.9598    628518
+  PortScan            0.6440    0.9975    0.7827     27208
+  macro avg           0.7826    0.9757    0.8604    752254
+  Accuracy (train classes): 0.9346   train=0.9988   gap=+0.0642   holdout=3972
+
+[17:40:12] epoch 55  step  1900  lr=4.16e-02  loss=0.1431
+
+[17:40:13] === Epoch 55 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7462    0.9990    0.8543     38404
+  DoS                 0.7234    0.9829    0.8334     58124
+  NormalTraffic       0.9991    0.9196    0.9577    628518
+  PortScan            0.6259    0.9983    0.7694     27208
+  macro avg           0.7736    0.9749    0.8537    752254
+  Accuracy (train classes): 0.9314   train=0.9989   gap=+0.0675   holdout=3972
+
+
+[17:40:15] === Epoch 56 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7822    0.9987    0.8773     38404
+  DoS                 0.7285    0.9789    0.8353     58124
+  NormalTraffic       0.9987    0.9263    0.9611    628518
+  PortScan            0.6442    0.9979    0.7830     27208
+  macro avg           0.7884    0.9755    0.8642    752254
+  Accuracy (train classes): 0.9367   train=0.9987   gap=+0.0620   holdout=3972
+
+  -> saved best_rff_model.bin / _W.csv / _b.csv
+  -> saved best_rff_Omega.bin  best_rff_phi.bin  (D=4096 IN_F=52)
+  ** New best acc=0.9367 — model saved.
+
+
+[17:40:17] === Epoch 57 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7477    0.9990    0.8553     38404
+  DoS                 0.7268    0.9828    0.8356     58124
+  NormalTraffic       0.9991    0.9211    0.9585    628518
+  PortScan            0.6328    0.9979    0.7745     27208
+  macro avg           0.7766    0.9752    0.8560    752254
+  Accuracy (train classes): 0.9326   train=0.9989   gap=+0.0663   holdout=3972
+
+[17:40:17] epoch 58  step  2000  lr=4.08e-02  loss=0.1444
+
+[17:40:18] === Epoch 58 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7645    0.9990    0.8662     38404
+  DoS                 0.7245    0.9833    0.8343     58124
+  NormalTraffic       0.9991    0.9231    0.9596    628518
+  PortScan            0.6388    0.9978    0.7789     27208
+  macro avg           0.7817    0.9758    0.8598    752254
+  Accuracy (train classes): 0.9343   train=0.9989   gap=+0.0646   holdout=3972
+
+
+[17:40:20] === Epoch 59 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7551    0.9990    0.8601     38404
+  DoS                 0.7218    0.9830    0.8324     58124
+  NormalTraffic       0.9991    0.9227    0.9594    628518
+  PortScan            0.6491    0.9980    0.7866     27208
+  macro avg           0.7813    0.9757    0.8596    752254
+  Accuracy (train classes): 0.9340   train=0.9989   gap=+0.0649   holdout=3972
+
+[17:40:20] epoch 60  step  2100  lr=3.99e-02  loss=0.1409
+
+[17:40:21] === Epoch 60 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7521    0.9990    0.8582     38404
+  DoS                 0.7256    0.9830    0.8349     58124
+  NormalTraffic       0.9991    0.9221    0.9591    628518
+  PortScan            0.6403    0.9979    0.7801     27208
+  macro avg           0.7793    0.9755    0.8581    752254
+  Accuracy (train classes): 0.9335   train=0.9989   gap=+0.0654   holdout=3972
+
+
+[17:40:23] === Epoch 61 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7604    0.9990    0.8635     38404
+  DoS                 0.7260    0.9833    0.8353     58124
+  NormalTraffic       0.9992    0.9209    0.9585    628518
+  PortScan            0.6203    0.9982    0.7651     27208
+  macro avg           0.7765    0.9753    0.8556    752254
+  Accuracy (train classes): 0.9325   train=0.9988   gap=+0.0663   holdout=3972
+
+
+[17:40:25] === Epoch 62 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7651    0.9988    0.8665     38404
+  DoS                 0.7204    0.9828    0.8314     58124
+  NormalTraffic       0.9991    0.9209    0.9584    628518
+  PortScan            0.6246    0.9982    0.7684     27208
+  macro avg           0.7773    0.9752    0.8562    752254
+  Accuracy (train classes): 0.9325   train=0.9987   gap=+0.0662   holdout=3972
+
+[17:40:25] epoch 63  step  2200  lr=3.90e-02  loss=0.1484
+
+[17:40:26] === Epoch 63 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7642    0.9989    0.8659     38404
+  DoS                 0.7239    0.9831    0.8338     58124
+  NormalTraffic       0.9991    0.9223    0.9592    628518
+  PortScan            0.6326    0.9980    0.7743     27208
+  macro avg           0.7799    0.9756    0.8583    752254
+  Accuracy (train classes): 0.9336   train=0.9988   gap=+0.0651   holdout=3972
+
+
+[17:40:28] === Epoch 64 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7653    0.9989    0.8666     38404
+  DoS                 0.7268    0.9829    0.8357     58124
+  NormalTraffic       0.9991    0.9245    0.9603    628518
+  PortScan            0.6476    0.9979    0.7855     27208
+  macro avg           0.7847    0.9761    0.8620    752254
+  Accuracy (train classes): 0.9355   train=0.9989   gap=+0.0634   holdout=3972
+
+
+[17:40:30] === Epoch 65 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7515    0.9990    0.8577     38404
+  DoS                 0.7250    0.9828    0.8344     58124
+  NormalTraffic       0.9991    0.9220    0.9590    628518
+  PortScan            0.6408    0.9980    0.7804     27208
+  macro avg           0.7791    0.9755    0.8579    752254
+  Accuracy (train classes): 0.9334   train=0.9988   gap=+0.0654   holdout=3972
+
+[17:40:30] epoch 66  step  2300  lr=3.81e-02  loss=0.1232
+
+[17:40:31] === Epoch 66 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7593    0.9989    0.8628     38404
+  DoS                 0.7237    0.9834    0.8338     58124
+  NormalTraffic       0.9991    0.9219    0.9590    628518
+  PortScan            0.6345    0.9980    0.7758     27208
+  macro avg           0.7792    0.9756    0.8578    752254
+  Accuracy (train classes): 0.9334   train=0.9988   gap=+0.0655   holdout=3972
+
+
+[17:40:33] === Epoch 67 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7492    0.9990    0.8562     38404
+  DoS                 0.7239    0.9831    0.8338     58124
+  NormalTraffic       0.9992    0.9174    0.9566    628518
+  PortScan            0.6029    0.9983    0.7518     27208
+  macro avg           0.7688    0.9744    0.8496    752254
+  Accuracy (train classes): 0.9296   train=0.9989   gap=+0.0693   holdout=3972
+
+
+[17:40:34] === Epoch 68 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7682    0.9989    0.8685     38404
+  DoS                 0.7197    0.9830    0.8310     58124
+  NormalTraffic       0.9991    0.9236    0.9599    628518
+  PortScan            0.6479    0.9976    0.7856     27208
+  macro avg           0.7837    0.9758    0.8612    752254
+  Accuracy (train classes): 0.9347   train=0.9988   gap=+0.0641   holdout=3972
+
+[17:40:35] epoch 69  step  2400  lr=3.71e-02  loss=0.1157
+
+[17:40:36] === Epoch 69 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7409    0.9990    0.8508     38404
+  DoS                 0.7253    0.9833    0.8348     58124
+  NormalTraffic       0.9991    0.9202    0.9580    628518
+  PortScan            0.6340    0.9980    0.7754     27208
+  macro avg           0.7749    0.9751    0.8548    752254
+  Accuracy (train classes): 0.9319   train=0.9989   gap=+0.0670   holdout=3972
+
+
+[17:40:38] === Epoch 70 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7580    0.9990    0.8620     38404
+  DoS                 0.7269    0.9831    0.8358     58124
+  NormalTraffic       0.9991    0.9225    0.9593    628518
+  PortScan            0.6358    0.9980    0.7768     27208
+  macro avg           0.7800    0.9756    0.8585    752254
+  Accuracy (train classes): 0.9338   train=0.9988   gap=+0.0650   holdout=3972
+
+
+[17:40:39] === Epoch 71 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7373    0.9991    0.8484     38404
+  DoS                 0.7162    0.9912    0.8316     58124
+  NormalTraffic       0.9991    0.9192    0.9575    628518
+  PortScan            0.6544    0.9980    0.7905     27208
+  macro avg           0.7767    0.9769    0.8570    752254
+  Accuracy (train classes): 0.9317   train=0.9989   gap=+0.0672   holdout=3972
+
+[17:40:39] epoch 72  step  2500  lr=3.61e-02  loss=0.1488
+
+[17:40:41] === Epoch 72 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7477    0.9991    0.8553     38404
+  DoS                 0.7223    0.9830    0.8327     58124
+  NormalTraffic       0.9992    0.9173    0.9565    628518
+  PortScan            0.6060    0.9982    0.7541     27208
+  macro avg           0.7688    0.9744    0.8497    752254
+  Accuracy (train classes): 0.9295   train=0.9990   gap=+0.0694   holdout=3972
+
+
+[17:40:43] === Epoch 73 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.6583    0.9992    0.7937     38404
+  DoS                 0.6882    0.9858    0.8105     58124
+  NormalTraffic       0.9995    0.8952    0.9445    628518
+  PortScan            0.5686    0.9983    0.7246     27208
+  macro avg           0.7287    0.9696    0.8183    752254
+  Accuracy (train classes): 0.9112   train=0.9990   gap=+0.0877   holdout=3972
+
+
+[17:40:44] === Epoch 74 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7627    0.9989    0.8650     38404
+  DoS                 0.7177    0.9830    0.8296     58124
+  NormalTraffic       0.9991    0.9201    0.9580    628518
+  PortScan            0.6235    0.9980    0.7675     27208
+  macro avg           0.7758    0.9750    0.8550    752254
+  Accuracy (train classes): 0.9318   train=0.9988   gap=+0.0670   holdout=3972
+
+[17:40:44] epoch 75  step  2600  lr=3.51e-02  loss=0.1479
+
+[17:40:46] === Epoch 75 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7486    0.9991    0.8559     38404
+  DoS                 0.7223    0.9832    0.8328     58124
+  NormalTraffic       0.9991    0.9217    0.9588    628518
+  PortScan            0.6451    0.9972    0.7834     27208
+  macro avg           0.7788    0.9753    0.8577    752254
+  Accuracy (train classes): 0.9331   train=0.9990   gap=+0.0659   holdout=3972
+
+
+[17:40:48] === Epoch 76 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7564    0.9990    0.8610     38404
+  DoS                 0.7218    0.9834    0.8326     58124
+  NormalTraffic       0.9991    0.9231    0.9596    628518
+  PortScan            0.6516    0.9975    0.7883     27208
+  macro avg           0.7822    0.9758    0.8604    752254
+  Accuracy (train classes): 0.9343   train=0.9989   gap=+0.0645   holdout=3972
+
+
+[17:40:49] === Epoch 77 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7347    0.9991    0.8467     38404
+  DoS                 0.7151    0.9836    0.8281     58124
+  NormalTraffic       0.9992    0.9161    0.9559    628518
+  PortScan            0.6202    0.9982    0.7651     27208
+  macro avg           0.7673    0.9743    0.8489    752254
+  Accuracy (train classes): 0.9286   train=0.9989   gap=+0.0704   holdout=3972
+
+[17:40:49] epoch 78  step  2700  lr=3.41e-02  loss=0.1118
+
+[17:40:51] === Epoch 78 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7567    0.9989    0.8611     38404
+  DoS                 0.7284    0.9830    0.8368     58124
+  NormalTraffic       0.9991    0.9231    0.9596    628518
+  PortScan            0.6405    0.9980    0.7802     27208
+  macro avg           0.7812    0.9758    0.8594    752254
+  Accuracy (train classes): 0.9343   train=0.9988   gap=+0.0645   holdout=3972
+
+
+[17:40:52] === Epoch 79 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7348    0.9990    0.8468     38404
+  DoS                 0.7143    0.9829    0.8274     58124
+  NormalTraffic       0.9991    0.9183    0.9570    628518
+  PortScan            0.6403    0.9976    0.7800     27208
+  macro avg           0.7721    0.9745    0.8528    752254
+  Accuracy (train classes): 0.9303   train=0.9989   gap=+0.0686   holdout=3972
+
+[17:40:52] epoch 80  step  2800  lr=3.31e-02  loss=0.1333
+
+[17:40:54] === Epoch 80 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7376    0.9990    0.8486     38404
+  DoS                 0.7252    0.9828    0.8345     58124
+  NormalTraffic       0.9991    0.9195    0.9576    628518
+  PortScan            0.6312    0.9980    0.7733     27208
+  macro avg           0.7733    0.9748    0.8535    752254
+  Accuracy (train classes): 0.9313   train=0.9989   gap=+0.0676   holdout=3972
+
+
+[17:40:56] === Epoch 81 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7340    0.9991    0.8463     38404
+  DoS                 0.7194    0.9827    0.8307     58124
+  NormalTraffic       0.9991    0.9188    0.9573    628518
+  PortScan            0.6378    0.9980    0.7783     27208
+  macro avg           0.7726    0.9746    0.8531    752254
+  Accuracy (train classes): 0.9307   train=0.9990   gap=+0.0682   holdout=3972
+
+
+[17:40:57] === Epoch 82 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7593    0.9989    0.8627     38404
+  DoS                 0.7268    0.9824    0.8355     58124
+  NormalTraffic       0.9991    0.9207    0.9583    628518
+  PortScan            0.6176    0.9983    0.7631     27208
+  macro avg           0.7757    0.9750    0.8549    752254
+  Accuracy (train classes): 0.9322   train=0.9987   gap=+0.0665   holdout=3972
+
+[17:40:57] epoch 83  step  2900  lr=3.20e-02  loss=0.1458
+
+[17:40:59] === Epoch 83 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7581    0.9990    0.8620     38404
+  DoS                 0.7202    0.9826    0.8312     58124
+  NormalTraffic       0.9991    0.9228    0.9594    628518
+  PortScan            0.6486    0.9975    0.7861     27208
+  macro avg           0.7815    0.9754    0.8597    752254
+  Accuracy (train classes): 0.9340   train=0.9988   gap=+0.0649   holdout=3972
+
+
+[17:41:01] === Epoch 84 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7464    0.9990    0.8544     38404
+  DoS                 0.7187    0.9832    0.8304     58124
+  NormalTraffic       0.9991    0.9199    0.9579    628518
+  PortScan            0.6365    0.9980    0.7773     27208
+  macro avg           0.7752    0.9750    0.8550    752254
+  Accuracy (train classes): 0.9317   train=0.9989   gap=+0.0672   holdout=3972
+
+
+[17:41:02] === Epoch 85 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7447    0.9990    0.8533     38404
+  DoS                 0.7188    0.9831    0.8304     58124
+  NormalTraffic       0.9992    0.9180    0.9569    628518
+  PortScan            0.6208    0.9983    0.7655     27208
+  macro avg           0.7708    0.9746    0.8515    752254
+  Accuracy (train classes): 0.9301   train=0.9989   gap=+0.0688   holdout=3972
+
+[17:41:02] epoch 86  step  3000  lr=3.10e-02  loss=0.1615
+
+[17:41:04] === Epoch 86 ===
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.7698    0.9988    0.8695     38404
+  DoS                 0.7200    0.9827    0.8311     58124
+  NormalTraffic       0.9991    0.9233    0.9597    628518
+  PortScan            0.6423    0.9980    0.7816     27208
+  macro avg           0.7828    0.9757    0.8605    752254
+  Accuracy (train classes): 0.9344   train=0.9987   gap=+0.0643   holdout=3972
+
+  Early stopping: no improvement > 0.0001 for 30 epochs.
+
+[17:41:04] Training complete.  Best test acc=0.9367
+

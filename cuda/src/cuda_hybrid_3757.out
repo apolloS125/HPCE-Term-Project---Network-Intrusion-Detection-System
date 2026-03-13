@@ -1,0 +1,40 @@
+[17:49:17] Loading test data...
+[17:49:23] N_test=756226
+
+[17:49:23] ═══ RFF-SVM + DBSCAN ═══
+[17:49:23] Loaded best_rff_model.bin: K=4 F=4096
+[17:49:23] RFF params: Omega[4096×52]  phi[4096]
+
+[17:49:25] ────────── Pipeline: RFF-SVM ──────────
+  Partition: holdout=3972  uncertain=35000 (capped)  confident=717254
+  DBSCAN pool size: 38972
+  Normal centroid (uncertain-pool argmax=Normal, n=10047): [-1.416,-0.947,0.112,-1.127]
+  k-dist: p10=0.00021  p25=0.00104  p50=0.00511  p75=0.03885  p90=0.10570
+  eps=0.14800 (EPS_OVERRIDE)
+  DBSCAN  eps=0.14800  min_samples=8
+  Adjacency edges: 138058970  (avg 3542.5/point)
+  Clusters=80  Noise=1374 (3.5%)
+  Cluster labeling: 15 holdout-voted, 65 reclassified Normal, 0 unknown anomaly
+
+  Per-class (SVM confident):
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.9935    0.9996    0.9965     36908
+  DoS                 0.9389    0.9890    0.9633     54480
+  NormalTraffic       0.9989    0.9704    0.9845    586057
+  PortScan            0.6663    0.9997    0.7996     27131
+  macro                                       0.9360
+
+  Holdout detection:
+  Class                Total   Correct     Noise
+  Bots                   584       501        40
+  BruteForce            2745      2721        24
+  WebAttacks             643       569        17
+
+  Uncertain reclassification (35000 total):
+  Reclassified Normal (near-Normal cluster)  3745
+  Matched holdout pattern (Bots/BF/WebAtk)  29962
+  Novel attack (DBSCAN noise -1)          1293
+  Unknown anomaly (unclaimed cluster)     0
+[17:49:25] Saved DBSCAN model -> best_rff_dbscan_model.bin  (80 clusters, eps=0.14800)
+
+[17:49:25] Done.
