@@ -1,0 +1,2 @@
+technique,n_train,n_test,features,svm_classes,accuracy,detection_rate,false_alarm_rate,train_ms,predict_ms,dbscan_ms,total_ms,flops,gflops,throughput
+PySpark_3w,588717,756226,52,4,93.8147,0.0504,0.3363,3135.7,8717.5,474.4,20233.8,206138363372,10.1878,37374.3
