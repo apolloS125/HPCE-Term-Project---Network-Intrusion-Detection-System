@@ -1,0 +1,8 @@
+technique,cppthread
+total_ms,36787.6
+gflops,38.9949
+throughput,20556.5
+train_ms,1.30649
+predict_ms,32023.6
+dbscan_ms,49.8836
+flops,1434528853998
