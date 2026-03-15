@@ -1,23 +1,70 @@
 /* Minimal overrides — Tailwind handles most styling */
-body {
-    font-family: 'Inter', system-ui, sans-serif;
-    background: #09090b;
-}
-.fade-in {
-    animation: fadeIn .4s ease forwards;
-    opacity: 0;
-}
-@keyframes fadeIn {
-    to { opacity: 1; }
-}
-.mono {
-    font-family: 'JetBrains Mono', monospace;
-}
+body { font-family: 'Inter', system-ui, sans-serif; background: #09090b; }
+.fade-in { animation: fadeIn .4s ease forwards; opacity: 0; }
+@keyframes fadeIn { to { opacity: 1; } }
+.mono { font-family: 'JetBrains Mono', monospace; }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
-
-/* Remove default details marker */
 details > summary { list-style: none; }
 details > summary::-webkit-details-marker { display: none; }
+
+/* Tabs */
+.tab-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #71717a;
+    border-radius: 6px;
+    transition: all .15s;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+.tab-btn:hover { color: #e4e4e7; }
+.tab-btn.active {
+    color: white;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Reusable */
+.card { background: #111113; border: 1px solid #27272a; border-radius: 12px; }
+.section-title { font-size: 11px; font-weight: 500; color: #71717a; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 16px; }
+.th-cell { padding: 10px 20px; font-weight: 500; color: #71717a; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+
+/* Confusion matrix */
+.cm-table { border-collapse: collapse; width: 100%; font-size: 11px; }
+.cm-table th, .cm-table td { padding: 6px 8px; text-align: center; border: 1px solid #27272a; }
+.cm-table th { color: #71717a; font-weight: 500; font-size: 10px; text-transform: uppercase; }
+.cm-cell { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.cm-cell-diag { color: #22c55e; font-weight: 600; }
+.cm-cell-off { color: #71717a; }
+
+/* Model selector buttons */
+.model-select-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all .15s;
+    color: #a1a1aa;
+}
+.model-select-btn:hover {
+    border-color: #3f3f46;
+    background: #1f1f23;
+}
+.model-select-btn.active {
+    border-color: #6366f1;
+    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+    color: #e4e4e7;
+}
+.model-select-btn.active span:first-child {
+    transform: scale(1.1);
+}

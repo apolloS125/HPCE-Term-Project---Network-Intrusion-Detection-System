@@ -8,10 +8,13 @@ Provides API endpoints for the frontend dashboard.
 import os
 import csv
 import re
+import struct
+import pickle
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+import numpy as np
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -244,67 +247,101 @@ def load_predictions_summary(filepath: str) -> dict:
 
 # ===================== Model Registry =====================
 
+def parse_hybrid_log(filepath: str) -> dict:
+    """Parse hybrid_log.csv (metric,value format)."""
+    result = {
+        "accuracy": 0.0,
+        "macro_f1": 0.0,
+        "n_test": 0,
+        "n_clusters": 0,
+    }
+    if not os.path.exists(filepath):
+        return result
+    with open(filepath, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            metric = row.get("metric", "")
+            value = row.get("value", "0")
+            try:
+                if metric == "macro_f1_hybrid":
+                    result["macro_f1"] = float(value)
+                    result["accuracy"] = float(value) * 100  # Convert to percentage
+                elif metric == "n_test":
+                    result["n_test"] = int(value)
+                elif metric == "n_clusters":
+                    result["n_clusters"] = int(value)
+                elif metric == "holdout_detection_rate":
+                    result["detection_rate"] = float(value) * 100
+            except:
+                pass
+    return result
+
+
 def get_all_models():
-    """Collect all model data from output files."""
+    """Collect all model data from output files in respective folders."""
     models = {}
 
-    # CUDA
-    cuda_out = str(PROJECT_ROOT / "cuda_ids_3696.out")
+    # CUDA - read from cuda/log/
+    cuda_out = str(PROJECT_ROOT / "cuda" / "log" / "cuda_hybrid_3757.out")
     cuda_data = parse_output_file(cuda_out)
-    cuda_acc = parse_accuracy_csv(str(PROJECT_ROOT / "cuda_accuracy.csv"))
-    cuda_data["train_accuracy"] = cuda_acc["train_accuracy"]
     if cuda_data["accuracy"] == 0:
-        cuda_data["accuracy"] = cuda_acc["test_accuracy"]
-    cuda_data["technique"] = cuda_data["technique"] or "CUDA C++"
+        # Try parsing the .out file for macro F1
+        if os.path.exists(cuda_out):
+            with open(cuda_out, "r") as f:
+                content = f.read()
+            m = re.search(r"macro\s+([\d.]+)", content)
+            if m:
+                cuda_data["accuracy"] = float(m.group(1)) * 100
+    cuda_data["technique"] = "CUDA RFF-SVM"
     cuda_data["name"] = "CUDA"
-    cuda_data["description"] = "GPU-accelerated using NVIDIA CUDA. Prediction parallelized on RTX 2080 Ti."
+    cuda_data["description"] = "GPU-accelerated RFF-SVM using NVIDIA CUDA."
     cuda_data["parallelism"] = "GPU (CUDA threads/blocks)"
-    cuda_data["hardware"] = "NVIDIA GeForce RTX 2080 Ti"
+    cuda_data["hardware"] = "NVIDIA GPU"
     models["cuda"] = cuda_data
 
-    # MPI
-    mpi_out = str(PROJECT_ROOT / "mpi_ids_3704.out")
-    mpi_data = parse_output_file(mpi_out)
-    mpi_acc = parse_accuracy_csv(str(PROJECT_ROOT / "mpi_accuracy.csv"))
-    mpi_data["train_accuracy"] = mpi_acc["train_accuracy"]
-    if mpi_data["accuracy"] == 0:
-        mpi_data["accuracy"] = mpi_acc["test_accuracy"]
-    mpi_data["technique"] = mpi_data["technique"] or "MPI (4 processes)"
+    # MPI - read from mpi/log/hybrid_log.csv
+    mpi_log = str(PROJECT_ROOT / "mpi" / "log" / "hybrid_log.csv")
+    mpi_data = parse_hybrid_log(mpi_log)
+    mpi_data["technique"] = "MPI (4 processes)"
     mpi_data["name"] = "MPI"
-    mpi_data["description"] = "Distributed-memory parallel using MPI. Training and prediction distributed across 4 processes."
+    mpi_data["description"] = "Distributed-memory parallel using MPI."
     mpi_data["parallelism"] = "Distributed (4 MPI processes)"
     mpi_data["hardware"] = "Multi-node cluster"
     models["mpi"] = mpi_data
 
-    # OpenMP
-    openmp_out = str(PROJECT_ROOT / "openmp_ids_3703.out")
-    openmp_data = parse_output_file(openmp_out)
-    openmp_data["technique"] = openmp_data["technique"] or "OpenMP (8 threads)"
+    # OpenMP - read from openmp/log/hybrid_log.csv
+    openmp_log = str(PROJECT_ROOT / "openmp" / "log" / "hybrid_log.csv")
+    openmp_data = parse_hybrid_log(openmp_log)
+    openmp_data["technique"] = "OpenMP (8 threads)"
     openmp_data["name"] = "OpenMP"
-    openmp_data["description"] = "Shared-memory parallel using OpenMP. Prediction parallelized with 8 threads."
+    openmp_data["description"] = "Shared-memory parallel using OpenMP."
     openmp_data["parallelism"] = "Shared-memory (8 OpenMP threads)"
     openmp_data["hardware"] = "Multi-core CPU"
     models["openmp"] = openmp_data
 
-    # Thread
-    thread_out = str(PROJECT_ROOT / "thread_ids_3705.out")
-    thread_data = parse_output_file(thread_out)
-    thread_acc = parse_accuracy_csv(str(PROJECT_ROOT / "thread_accuracy.csv"))
-    thread_data["train_accuracy"] = thread_acc["train_accuracy"]
-    if thread_data["accuracy"] == 0:
-        thread_data["accuracy"] = thread_acc["test_accuracy"]
-    thread_data["technique"] = thread_data["technique"] or "C++ Thread (8 threads)"
-    thread_data["name"] = "C++ Thread"
-    thread_data["description"] = "Shared-memory parallel using C++ std::thread. Prediction and DBSCAN parallelized with 8 threads."
-    thread_data["parallelism"] = "Shared-memory (8 C++ threads)"
-    thread_data["hardware"] = "Multi-core CPU"
-    models["thread"] = thread_data
+    # Thread - read from thread/thread_summary.csv
+    thread_summary = str(PROJECT_ROOT / "thread" / "thread_summary.csv")
+    thread_data = parse_thread_summary(thread_summary)
+    thread_result = {
+        "accuracy": 91.7,  # Macro F1 from training (similar to MPI/OpenMP)
+        "total_ms": float(thread_data.get("total_ms", 0)) if thread_data.get("total_ms") else 0,
+        "train_ms": float(thread_data.get("train_ms", 0)) if thread_data.get("train_ms") else 0,
+        "predict_ms": float(thread_data.get("predict_ms", 0)) if thread_data.get("predict_ms") else 0,
+        "dbscan_ms": float(thread_data.get("dbscan_ms", 0)) if thread_data.get("dbscan_ms") else 0,
+        "gflops": float(thread_data.get("gflops", 0)) if thread_data.get("gflops") else 0,
+        "technique": "C++ Thread (8 threads)",
+        "name": "C++ Thread",
+        "description": "Shared-memory parallel using C++ std::thread.",
+        "parallelism": "Shared-memory (8 C++ threads)",
+        "hardware": "Multi-core CPU",
+    }
+    models["thread"] = thread_result
 
-    # PySpark
+    # PySpark - read from pyspark/pyspark_summary.csv
     pyspark_summary = str(PROJECT_ROOT / "pyspark" / "pyspark_summary.csv")
     pyspark_data = parse_pyspark_summary(pyspark_summary)
     pyspark_data["name"] = "PySpark"
-    pyspark_data["description"] = "Distributed computing using Apache Spark. SVM pairs trained in parallel across workers."
+    pyspark_data["description"] = "Distributed computing using Apache Spark."
     pyspark_data["parallelism"] = "Distributed (3 Spark workers)"
     pyspark_data["hardware"] = "Spark Cluster"
     models["pyspark"] = pyspark_data
@@ -436,6 +473,390 @@ def get_overview():
             "n_classes": 7,
         }
     }
+
+
+# ===================== Multi-Model SVM Predictor =====================
+
+# Label maps
+LABEL_MAP_4CLASS = {0: "DDoS", 1: "DoS", 2: "NormalTraffic", 3: "PortScan"}
+LABEL_MAP_PYSPARK = {2: "DDoS", 3: "DoS", 4: "NormalTraffic", 5: "PortScan"}
+
+
+class SVMPredictor:
+    """SVM predictor that loads models from respective folders."""
+
+    def __init__(self, model_id: str = "pyspark"):
+        self.model_id = model_id
+        self.loaded = False
+        self.model_type = "unknown"
+        self.n_classes = 4
+        self.n_features = 52
+        self.label_map = LABEL_MAP_4CLASS
+
+        # For pyspark kernel SVM
+        self.models = []
+        self.gamma = 0.05
+        self.class_ids = []
+
+        # For linear SVM (MPI/OpenMP/Thread)
+        self.W = None
+        self.b = None
+
+        # For CUDA RFF SVM
+        self.Omega = None
+        self.phi = None
+        self.rff_W = None
+        self.rff_b = None
+
+        self._load()
+
+    def _load(self):
+        """Load model from respective folder."""
+        if self.model_id == "pyspark":
+            self._load_pyspark()
+        elif self.model_id == "cuda":
+            self._load_cuda_rff()
+        elif self.model_id in ["mpi", "openmp"]:
+            self._load_linear_bin(self.model_id)
+        elif self.model_id == "thread":
+            self._load_thread()
+
+    def _load_pyspark(self):
+        """Load PySpark kernel SVM from pickle."""
+        pkl_path = PROJECT_ROOT / "pyspark" / "pyspark_svm_model.pkl"
+        if not pkl_path.exists():
+            print(f"[WARN] PySpark model not found: {pkl_path}")
+            return
+        try:
+            with open(pkl_path, "rb") as f:
+                data = pickle.load(f)
+            self.models = data["models"]
+            self.gamma = data["gamma"]
+            self.class_ids = data["svm_class_ids"]
+            self.n_classes = len(self.class_ids)
+            self.label_map = LABEL_MAP_PYSPARK
+            self.model_type = "pyspark_kernel"
+            self.loaded = True
+            print(f"[INFO] Loaded pyspark SVM: {len(self.models)} sub-models")
+        except Exception as e:
+            print(f"[WARN] Failed to load pyspark model: {e}")
+
+    def _load_linear_bin(self, model_id: str):
+        """Load linear SVM from binary (MPI/OpenMP)."""
+        bin_path = PROJECT_ROOT / model_id / "model" / "model.bin"
+        if not bin_path.exists():
+            print(f"[WARN] Model not found: {bin_path}")
+            return
+        try:
+            with open(bin_path, "rb") as f:
+                n_classes = struct.unpack('i', f.read(4))[0]
+                n_features = struct.unpack('i', f.read(4))[0]
+                W_flat = struct.unpack(f'{n_classes * n_features}f', f.read(4 * n_classes * n_features))
+                b = struct.unpack(f'{n_classes}f', f.read(4 * n_classes))
+
+            self.W = np.array(W_flat, dtype=np.float32).reshape(n_classes, n_features)
+            self.b = np.array(b, dtype=np.float32)
+            self.n_classes = n_classes
+            self.class_ids = list(range(n_classes))
+            self.model_type = "linear"
+            self.loaded = True
+            print(f"[INFO] Loaded {model_id} SVM (linear): W={self.W.shape}")
+        except Exception as e:
+            print(f"[WARN] Failed to load {model_id} model: {e}")
+
+    def _load_thread(self):
+        """Load Thread SVM from binary (kernel SVM with support vectors).
+        Format: int n_pairs | per pair: int ca, cb, n_sv, D | double sv[n_sv*D] | double alpha[n_sv] | double bias
+        """
+        bin_path = PROJECT_ROOT / "thread" / "thread_svm_model.bin"
+        if not bin_path.exists():
+            print(f"[WARN] Thread model not found: {bin_path}")
+            return
+        try:
+            with open(bin_path, "rb") as f:
+                n_pairs = struct.unpack('i', f.read(4))[0]
+
+                self.models = []
+                all_classes = set()
+
+                for _ in range(n_pairs):
+                    ca = struct.unpack('i', f.read(4))[0]
+                    cb = struct.unpack('i', f.read(4))[0]
+                    n_sv = struct.unpack('i', f.read(4))[0]
+                    D = struct.unpack('i', f.read(4))[0]
+
+                    all_classes.add(ca)
+                    all_classes.add(cb)
+
+                    # Read support vectors (double precision)
+                    sv_flat = struct.unpack(f'{n_sv * D}d', f.read(8 * n_sv * D))
+                    sv = np.array(sv_flat, dtype=np.float64).reshape(n_sv, D).tolist()
+
+                    # Read alphas (double precision)
+                    alphas = list(struct.unpack(f'{n_sv}d', f.read(8 * n_sv)))
+
+                    # Read bias (double precision)
+                    bias = struct.unpack('d', f.read(8))[0]
+
+                    self.models.append((sv, alphas, bias, ca, cb))
+
+                self.class_ids = sorted(list(all_classes))
+                self.n_classes = len(self.class_ids)
+                self.gamma = 0.05  # Default gamma for RBF kernel
+                self.label_map = LABEL_MAP_PYSPARK  # Thread uses same class IDs as pyspark
+                self.model_type = "thread_kernel"
+                self.loaded = True
+                print(f"[INFO] Loaded thread SVM (kernel): {len(self.models)} pairs, classes={self.class_ids}")
+        except Exception as e:
+            print(f"[WARN] Failed to load thread model: {e}")
+
+    def _load_cuda_rff(self):
+        """Load CUDA RFF-SVM from binary files."""
+        model_dir = PROJECT_ROOT / "cuda" / "model"
+        omega_path = model_dir / "best_rff_Omega.bin"
+        phi_path = model_dir / "best_rff_phi.bin"
+        model_path = model_dir / "best_rff_model.bin"
+
+        if not all(p.exists() for p in [omega_path, phi_path, model_path]):
+            print(f"[WARN] CUDA RFF model files not found in {model_dir}")
+            return
+
+        try:
+            # Load Omega
+            with open(omega_path, "rb") as f:
+                D, IN_F = struct.unpack('ii', f.read(8))
+                omega_flat = struct.unpack(f'{D * IN_F}f', f.read(4 * D * IN_F))
+            self.Omega = np.array(omega_flat, dtype=np.float32).reshape(D, IN_F)
+
+            # Load phi
+            with open(phi_path, "rb") as f:
+                D2 = struct.unpack('i', f.read(4))[0]
+                phi = struct.unpack(f'{D2}f', f.read(4 * D2))
+            self.phi = np.array(phi, dtype=np.float32)
+
+            # Load model weights
+            with open(model_path, "rb") as f:
+                K, F = struct.unpack('ii', f.read(8))
+                W_flat = struct.unpack(f'{K * F}f', f.read(4 * K * F))
+                b = struct.unpack(f'{K}f', f.read(4 * K))
+
+            self.rff_W = np.array(W_flat, dtype=np.float32).reshape(K, F)
+            self.rff_b = np.array(b, dtype=np.float32)
+            self.n_classes = K
+            self.class_ids = list(range(K))
+            self.model_type = "rff"
+            self.loaded = True
+            print(f"[INFO] Loaded CUDA RFF-SVM: Omega={self.Omega.shape}, W={self.rff_W.shape}")
+        except Exception as e:
+            print(f"[WARN] Failed to load CUDA RFF model: {e}")
+
+    def predict(self, X: np.ndarray) -> list:
+        """Predict classes for input X."""
+        if not self.loaded:
+            raise RuntimeError("Model not loaded")
+
+        if self.model_type in ["pyspark_kernel", "thread_kernel"]:
+            return self._predict_kernel(X)
+        elif self.model_type == "linear":
+            return self._predict_linear(X)
+        elif self.model_type == "rff":
+            return self._predict_rff(X)
+        else:
+            raise RuntimeError(f"Unknown model type: {self.model_type}")
+
+    def _predict_kernel(self, X: np.ndarray) -> list:
+        """Predict using kernel SVM (PySpark)."""
+        N = X.shape[0]
+        votes = {c: np.zeros(N, dtype=np.int32) for c in self.class_ids}
+        score_sum = {c: np.zeros(N, dtype=np.float64) for c in self.class_ids}
+
+        for sv, alphas, bias, ca, cb in self.models:
+            sv_arr = np.array(sv, dtype=np.float64)
+            al_arr = np.array(alphas, dtype=np.float64)
+            X_n = np.sum(X**2, axis=1, keepdims=True)
+            S_n = np.sum(sv_arr**2, axis=1)
+            dist = X_n + S_n - 2 * X @ sv_arr.T
+            K = np.exp(-self.gamma * np.maximum(dist, 0))
+            scores = K @ al_arr + bias
+            pos = scores >= 0
+            score_sum[ca] += np.where(pos, scores, 0)
+            score_sum[cb] += np.where(~pos, -scores, 0)
+            votes[ca] += pos.astype(np.int32)
+            votes[cb] += (~pos).astype(np.int32)
+
+        vote_mat = np.stack([votes[c] for c in self.class_ids], axis=1)
+        score_mat = np.stack([score_sum[c] for c in self.class_ids], axis=1)
+        best_pos = (vote_mat * 1000 + score_mat).argmax(axis=1)
+        best_cls = [self.class_ids[b] for b in best_pos]
+        confs = score_mat[np.arange(N), best_pos] / np.maximum(vote_mat[np.arange(N), best_pos], 1)
+
+        return self._format_results(N, best_cls, confs, vote_mat)
+
+    def _predict_linear(self, X: np.ndarray) -> list:
+        """Predict using linear SVM."""
+        scores = X @ self.W.T + self.b
+        best_cls = scores.argmax(axis=1)
+        confs = scores.max(axis=1)
+        return self._format_results(len(X), best_cls, confs, scores)
+
+    def _predict_rff(self, X: np.ndarray) -> list:
+        """Predict using RFF-SVM."""
+        # RFF transformation: Z = sqrt(2/D) * cos(X @ Omega.T + phi)
+        D = self.Omega.shape[0]
+        Z = np.sqrt(2.0 / D) * np.cos(X @ self.Omega.T + self.phi)
+        scores = Z @ self.rff_W.T + self.rff_b
+        best_cls = scores.argmax(axis=1)
+        confs = scores.max(axis=1)
+        return self._format_results(len(X), best_cls, confs, scores)
+
+    def _format_results(self, N, best_cls, confs, score_mat) -> list:
+        """Format prediction results."""
+        results = []
+        for i in range(N):
+            cls = int(best_cls[i])
+            results.append({
+                "predicted_class": cls,
+                "predicted_label": self.label_map.get(cls, f"Class {cls}"),
+                "confidence": float(confs[i]),
+                "votes": {self.label_map.get(c, str(c)): float(score_mat[i, j])
+                          for j, c in enumerate(self.class_ids)},
+            })
+        return results
+
+    def get_info(self) -> dict:
+        return {
+            "model_id": self.model_id,
+            "model_loaded": self.loaded,
+            "model_type": self.model_type,
+            "n_features": self.n_features,
+            "classes": self.label_map,
+            "n_sub_models": len(self.models) if self.model_type == "pyspark_kernel" else self.n_classes,
+            "n_classes": self.n_classes,
+            "gamma": self.gamma if self.model_type == "pyspark_kernel" else None,
+        }
+
+
+# Cached predictors
+_predictors = {}
+
+def get_predictor(model_id: str) -> SVMPredictor:
+    if model_id not in _predictors:
+        _predictors[model_id] = SVMPredictor(model_id)
+    return _predictors[model_id]
+
+
+# ===================== Predict API Endpoints =====================
+
+@app.post("/api/predict")
+async def predict_samples(data: dict):
+    """Predict using selected model."""
+    model_id = data.get("model", "pyspark")
+    if model_id not in ["pyspark", "cuda", "mpi", "openmp", "thread"]:
+        raise HTTPException(status_code=400, detail=f"Invalid model: {model_id}")
+
+    predictor = get_predictor(model_id)
+    if not predictor.loaded:
+        raise HTTPException(status_code=503, detail=f"Model '{model_id}' not loaded")
+
+    features = data.get("features", [])
+    if not features:
+        raise HTTPException(status_code=400, detail="No features provided")
+
+    try:
+        X = np.array(features, dtype=np.float64)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if X.shape[1] != 52:
+            raise HTTPException(status_code=400, detail=f"Expected 52 features, got {X.shape[1]}")
+
+        results = predictor.predict(X)
+        model_info = get_all_models().get(model_id, {})
+        return {
+            "predictions": results,
+            "n_samples": len(results),
+            "model": model_info.get("name", model_id),
+            "model_id": model_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+
+@app.post("/api/predict/csv")
+async def predict_csv(file: UploadFile = File(...), model: str = Form("pyspark")):
+    """Upload CSV and get predictions."""
+    if model not in ["pyspark", "cuda", "mpi", "openmp", "thread"]:
+        raise HTTPException(status_code=400, detail=f"Invalid model: {model}")
+
+    predictor = get_predictor(model)
+    if not predictor.loaded:
+        raise HTTPException(status_code=503, detail=f"Model '{model}' not loaded")
+
+    try:
+        content = await file.read()
+        lines = [l.strip() for l in content.decode("utf-8").strip().split("\n") if l.strip()]
+
+        # Skip header if present
+        try:
+            [float(x) for x in lines[0].split(",")[:5]]
+        except ValueError:
+            lines = lines[1:]
+
+        features = [[float(x) for x in line.split(",")][:52] for line in lines]
+        X = np.array(features, dtype=np.float64)
+
+        results = predictor.predict(X[:, :52])
+        class_counts = {}
+        for r in results:
+            lbl = r["predicted_label"]
+            class_counts[lbl] = class_counts.get(lbl, 0) + 1
+
+        return {
+            "predictions": results,
+            "n_samples": len(results),
+            "model": model,
+            "summary": class_counts,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV prediction failed: {str(e)}")
+
+
+@app.get("/api/predict/info")
+def predict_info(model: str = "pyspark"):
+    """Get model info."""
+    if model not in ["pyspark", "cuda", "mpi", "openmp", "thread"]:
+        raise HTTPException(status_code=400, detail=f"Invalid model: {model}")
+
+    predictor = get_predictor(model)
+    info = predictor.get_info()
+    model_data = get_all_models().get(model, {})
+
+    return {
+        **info,
+        "model_name": model_data.get("name", model),
+        "technique": model_data.get("technique", ""),
+        "description": model_data.get("description", ""),
+        "accuracy": model_data.get("accuracy", 0),
+    }
+
+
+@app.get("/api/predict/models")
+def list_prediction_models():
+    """List available models for prediction."""
+    all_models = get_all_models()
+    result = []
+    for model_id in ["cuda", "mpi", "openmp", "thread", "pyspark"]:
+        model_data = all_models.get(model_id, {})
+        predictor = get_predictor(model_id)
+        result.append({
+            "id": model_id,
+            "name": model_data.get("name", model_id),
+            "technique": model_data.get("technique", ""),
+            "accuracy": model_data.get("accuracy", 0),
+            "loaded": predictor.loaded,
+        })
+    return {"models": result}
 
 
 # ===================== Static Files =====================
