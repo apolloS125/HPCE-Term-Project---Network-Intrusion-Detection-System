@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIDS — HPC Model Dashboard</title>
+    <meta name="description" content="Network Intrusion Detection System — HPC Performance Comparison">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        surface: { 0: '#09090b', 1: '#111113', 2: '#18181b', 3: '#1f1f23' },
+                        dim: '#71717a',
+                        subtle: '#a1a1aa',
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; background: #09090b; }
+        .fade-in { animation: fadeIn .4s ease forwards; opacity: 0; }
+        @keyframes fadeIn { to { opacity: 1; } }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-surface-0 text-zinc-200 min-h-screen antialiased">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-surface-0/80 backdrop-blur-xl border-b border-zinc-800/60">
+        <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M8 14L12 10L16 14L20 10"/></svg>
+                </div>
+                <h1 class="text-sm font-semibold tracking-tight">NIDS Dashboard</h1>
+                <span class="text-[11px] text-dim bg-zinc-800 px-2 py-0.5 rounded-full">CICIDS 2017</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-dim" id="status">
+                <span class="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span>
+                Loading...
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-6 py-8 space-y-8">
+
+        <!-- KPI Strip -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-3 fade-in" id="kpi-strip" style="animation-delay:.1s">
+        </section>
+
+        <!-- Model Cards -->
+        <section class="fade-in" style="animation-delay:.2s">
+            <h2 class="text-xs font-medium text-dim uppercase tracking-wider mb-4">Models</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3" id="model-cards">
+            </div>
+        </section>
+
+        <!-- Charts Row -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-3 fade-in" style="animation-delay:.3s">
+            <div class="bg-surface-1 border border-zinc-800 rounded-xl p-5">
+                <h3 class="text-xs font-medium text-dim uppercase tracking-wider mb-4">Accuracy (%)</h3>
+                <div class="h-56"><canvas id="chart-acc"></canvas></div>
+            </div>
+            <div class="bg-surface-1 border border-zinc-800 rounded-xl p-5">
+                <h3 class="text-xs font-medium text-dim uppercase tracking-wider mb-4">Total Time (seconds)</h3>
+                <div class="h-56"><canvas id="chart-time"></canvas></div>
+            </div>
+        </section>
+
+        <!-- Detailed Table -->
+        <section class="fade-in" style="animation-delay:.4s">
+            <h2 class="text-xs font-medium text-dim uppercase tracking-wider mb-4">Performance Breakdown</h2>
+            <div class="bg-surface-1 border border-zinc-800 rounded-xl overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm" id="perf-table">
+                        <thead>
+                            <tr class="border-b border-zinc-800 text-left">
+                                <th class="px-5 py-3 font-medium text-dim text-xs uppercase tracking-wider">Model</th>
+                                <th class="px-5 py-3 font-medium text-dim text-xs uppercase tracking-wider">Accuracy</th>
+                                <th class="px-5 py-3 font-medium text-dim text-xs uppercase tracking-wider">Train</th>
+                                <th class="px-5 py-3 font-medium text-dim text-xs uppercase tracking-wider">Predict</th>
+                                <th class="px-5 py-3 font-medium text-dim text-xs uppercase tracking-wider">DBSCAN</th>
+                                <th class="px-5 py-3 font-medium text-dim text-xs uppercase tracking-wider">Total</th>
+                                <th class="px-5 py-3 font-medium text-dim text-xs uppercase tracking-wider">GFLOPS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="perf-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pipeline + GFLOPS Charts -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-3 fade-in" style="animation-delay:.5s">
+            <div class="bg-surface-1 border border-zinc-800 rounded-xl p-5">
+                <h3 class="text-xs font-medium text-dim uppercase tracking-wider mb-4">Pipeline Breakdown (seconds)</h3>
+                <div class="h-60"><canvas id="chart-pipeline"></canvas></div>
+            </div>
+            <div class="bg-surface-1 border border-zinc-800 rounded-xl p-5">
+                <h3 class="text-xs font-medium text-dim uppercase tracking-wider mb-4">GFLOPS</h3>
+                <div class="h-60"><canvas id="chart-gflops"></canvas></div>
+            </div>
+        </section>
+
+        <!-- Model Detail Expandable -->
+        <section class="fade-in" style="animation-delay:.6s">
+            <h2 class="text-xs font-medium text-dim uppercase tracking-wider mb-4">Model Details</h2>
+            <div class="space-y-2" id="model-details"></div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-zinc-800/60 mt-12">
+        <div class="max-w-6xl mx-auto px-6 py-6 text-xs text-dim text-center">
+            HPC Term Project — Network Intrusion Detection System • SVM + DBSCAN Pipeline
+        </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
