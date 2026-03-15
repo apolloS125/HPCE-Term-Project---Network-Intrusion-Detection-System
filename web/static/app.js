@@ -399,6 +399,15 @@ function renderAnalysisTables(analysis) {
 let selectedFile = null, selectedModel = 'pyspark', predictModels = [];
 let useDBSCAN = false, confThreshold = 0.5;
 
+// Per-model confidence thresholds matching C++ infer code constants
+const MODEL_CONF_THRESHOLDS = {
+    cuda:    0.5,
+    mpi:     0.8,
+    openmp:  0.67,
+    thread:  0.5,
+    pyspark: 0.5,
+};
+
 function setupPredict() {
     loadPredictModels();
     document.getElementById('btn-predict-manual').addEventListener('click', predictManual);
@@ -511,6 +520,13 @@ function renderModelSelector() {
             container.querySelectorAll('.model-select-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             loadPredictInfo(selectedModel);
+            // Auto-set confidence threshold to the correct value for this model
+            const modelThreshold = MODEL_CONF_THRESHOLDS[selectedModel] ?? 0.5;
+            confThreshold = modelThreshold;
+            const slider = document.getElementById('conf-threshold');
+            const sliderVal = document.getElementById('conf-threshold-value');
+            if (slider) slider.value = modelThreshold;
+            if (sliderVal) sliderVal.textContent = modelThreshold.toFixed(2);
         });
     });
 }
@@ -610,7 +626,11 @@ async function predictManual() {
 
 async function predictCSV() {
     if (!selectedFile) return;
-    const form = new FormData(); form.append('file', selectedFile); form.append('model', selectedModel);
+    const form = new FormData();
+    form.append('file', selectedFile);
+    form.append('model', selectedModel);
+    form.append('use_dbscan', useDBSCAN ? 'true' : 'false');
+    form.append('conf_threshold', confThreshold.toString());
     try {
         const res = await fetch('/api/predict/csv', {method:'POST', body:form});
         const data = await res.json();
@@ -644,6 +664,11 @@ function showPredictResults(data) {
                 <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Confident</p>
                 <p class="text-3xl font-display font-bold text-purple-400 tracking-tight relative z-10 drop-shadow-md">${db.n_confident}</p>
             </div>
+            <div class="card px-5 py-4 border bg-emerald-500/10 border-emerald-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Normal (Low Conf)</p>
+                <p class="text-3xl font-display font-bold text-emerald-400 tracking-tight relative z-10 drop-shadow-md">${db.n_uncertain_normal ?? 0}</p>
+            </div>
             <div class="card px-5 py-4 border bg-amber-500/10 border-amber-500/20 flex flex-col items-center justify-center relative overflow-hidden">
                 <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
                 <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Novel Patterns</p>
@@ -651,7 +676,7 @@ function showPredictResults(data) {
             </div>
             <div class="card px-5 py-4 border bg-red-500/10 border-red-500/20 flex flex-col items-center justify-center relative overflow-hidden">
                 <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
-                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Unknown</p>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Unknown / Unverified</p>
                 <p class="text-3xl font-display font-bold text-red-400 tracking-tight relative z-10 drop-shadow-md">${db.n_unknown}</p>
             </div>
             <div class="card px-5 py-4 border bg-cyan-500/10 border-cyan-500/20 flex flex-col items-center justify-center relative overflow-hidden">
@@ -676,20 +701,28 @@ function showPredictResults(data) {
 
     const show = (data.predictions || []).slice(0, 100);
     document.getElementById('predict-results-tbody').innerHTML = show.map((p,i) => {
-        const voteStr = Object.entries(p.votes||{}).map(([c,v])=>`<span class="text-zinc-500">${c}:</span><span class="text-zinc-300 ml-1">${v.toFixed(1)}</span>`).join(' <span class="text-white/10 mx-1">|</span> ');
-        const isNormal = p.predicted_label === 'NormalTraffic';
-        const isUnknown = p.predicted_label === 'Unknown';
-        const isNovel = p.is_novel === true;
-        const isUncertain = p.is_uncertain === true;
+        const voteStr = Object.entries(p.votes||{}).map(([c,v])=>`<span class="text-zinc-500">${c}:</span><span class="text-zinc-300 ml-1">${typeof v === 'number' ? v.toFixed(4) : v}</span>`).join(' <span class="text-white/10 mx-1">|</span> ');
+        const lbl = p.predicted_label || '';
+        const isNormal     = lbl === 'NormalTraffic' || lbl === 'Normal';
+        const isLowConfNormal = isNormal && p.is_uncertain === true;
+        const isUnknown    = lbl.startsWith('Unknown');
+        const isNovel      = p.is_novel === true;
+        const isUnverified = lbl.endsWith('(Unverified)');
+        const isUncertain  = p.is_uncertain === true;
 
         let labelClass = '';
         let labelBadge = '';
         if (isUnknown) {
             labelClass = 'bg-red-500/10 text-red-400 border-red-500/20';
-            labelBadge = '❓';
+            labelBadge = '⚠';
+        } else if (isUnverified) {
+            labelClass = 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+            labelBadge = '?';
         } else if (isNovel) {
             labelClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-            labelBadge = '🆕';
+            labelBadge = '★';
+        } else if (isLowConfNormal) {
+            labelClass = 'bg-emerald-500/10 text-emerald-400/70 border-emerald-500/20';
         } else if (isNormal) {
             labelClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
         } else {

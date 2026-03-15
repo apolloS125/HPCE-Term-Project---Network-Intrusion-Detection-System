@@ -30,6 +30,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Disable browser caching for JS/CSS so changes are picked up immediately on refresh
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") and (path.endswith(".js") or path.endswith(".css")):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -296,10 +306,8 @@ def parse_hybrid_log(filepath: str) -> dict:
                     result["dbscan_ms"] = float(value)
                 elif metric in ["total_ms", "total_time_ms"]:
                     result["total_ms"] = float(value)
-                elif metric in ["gflops", "svm_gflops", "predict_gflops"]:
-                    # Use first gflops value found
-                    if result["gflops"] == 0:
-                        result["gflops"] = float(value)
+                elif metric in ["gflops", "svm_gflops", "predict_gflops", "dbscan_gflops"]:
+                    result["gflops"] += float(value)
             except:
                 pass
     return result
@@ -340,6 +348,27 @@ def parse_cuda_training_log(filepath: str) -> dict:
     return result
 
 
+def parse_cuda_train_out(log_dir: str) -> dict:
+    """Parse CUDA cuda_train_*.out for the training summary total_ms and effective GFLOPS."""
+    import glob as _glob
+    result = {"total_ms": 0.0, "gflops": 0.0}
+    files = sorted(_glob.glob(os.path.join(log_dir, "cuda_train_*.out")))
+    if not files:
+        return result
+    try:
+        with open(files[-1], "r") as f:
+            content = f.read()
+        m = re.search(r"Total Train Time\s*:\s*([\d.]+)\s*ms", content)
+        if m:
+            result["total_ms"] = float(m.group(1))
+        m = re.search(r"Effective GFLOPS\s*:\s*([\d.]+)", content)
+        if m:
+            result["gflops"] = float(m.group(1))
+    except Exception:
+        pass
+    return result
+
+
 def get_all_models():
     """Collect all model data from output files in respective folders only."""
     models = {}
@@ -347,6 +376,22 @@ def get_all_models():
     # CUDA - read from cuda/log/training_log.csv (new format from main branch)
     cuda_training_log = str(PROJECT_ROOT / "cuda" / "log" / "training_log.csv")
     cuda_data = parse_cuda_training_log(cuda_training_log)
+
+    # Override total_ms and GFLOPS with the authoritative training summary from the .out file
+    cuda_out_summary = parse_cuda_train_out(str(PROJECT_ROOT / "cuda" / "log"))
+    if cuda_out_summary["total_ms"] > 0:
+        cuda_data["total_ms"] = cuda_out_summary["total_ms"]
+        cuda_data["train_ms"] = cuda_out_summary["total_ms"]  # entire CUDA run is training
+    if cuda_out_summary["gflops"] > 0:
+        cuda_data["gflops"] = cuda_out_summary["gflops"]
+
+    # Fields missing from training_log.csv — known constants from training output
+    cuda_data["n_features"] = 52
+    cuda_data["n_classes"] = 4
+    cuda_data["n_train"] = 588717
+    # n_test already hardcoded as 752254 in parse_cuda_training_log
+    if cuda_data["gflops"] > 0 and cuda_data["total_ms"] > 0:
+        cuda_data["flops"] = int(cuda_data["gflops"] * (cuda_data["total_ms"] / 1000) * 1e9)
 
     cuda_data["technique"] = "CUDA RFF-SVM"
     cuda_data["name"] = "CUDA"
@@ -358,33 +403,65 @@ def get_all_models():
     # MPI - read from mpi/log/hybrid_log.csv only
     mpi_log = str(PROJECT_ROOT / "mpi" / "log" / "hybrid_log.csv")
     mpi_data = parse_hybrid_log(mpi_log)
+    # train_ms not in hybrid_log — read from train_results.csv
+    mpi_train_results = str(PROJECT_ROOT / "mpi" / "log" / "train_results.csv")
+    if os.path.exists(mpi_train_results):
+        with open(mpi_train_results) as _f:
+            for row in csv.DictReader(_f):
+                mpi_data["train_ms"] = float(row.get("train_time_ms", 0))
     mpi_data["technique"] = "MPI Linear SVM"
     mpi_data["name"] = "MPI"
     mpi_data["description"] = "Distributed-memory parallel using MPI. One-vs-All Linear SVM classifier."
     mpi_data["parallelism"] = "Distributed (4 MPI processes)"
     mpi_data["hardware"] = "Multi-node cluster"
+    mpi_data["n_features"] = 52
+    mpi_data["n_classes"] = 4
+    mpi_data["n_train"] = 588717
+    if mpi_data["gflops"] > 0 and mpi_data["total_ms"] > 0:
+        mpi_data["flops"] = int(mpi_data["gflops"] * (mpi_data["total_ms"] / 1000) * 1e9)
     models["mpi"] = mpi_data
 
     # OpenMP - read from openmp/log/hybrid_log.csv only
     openmp_log = str(PROJECT_ROOT / "openmp" / "log" / "hybrid_log.csv")
     openmp_data = parse_hybrid_log(openmp_log)
+    # train_ms not in hybrid_log — read trailing summary rows from training_log.csv
+    openmp_training_csv = str(PROJECT_ROOT / "openmp" / "log" / "training_log.csv")
+    if os.path.exists(openmp_training_csv):
+        with open(openmp_training_csv) as _f:
+            for line in _f:
+                parts = line.strip().split(",")
+                if len(parts) == 2 and parts[0] == "train_ms":
+                    try:
+                        openmp_data["train_ms"] = float(parts[1])
+                    except ValueError:
+                        pass
     openmp_data["technique"] = "OpenMP Linear SVM"
     openmp_data["name"] = "OpenMP"
     openmp_data["description"] = "Shared-memory parallel using OpenMP. One-vs-All Linear SVM classifier."
     openmp_data["parallelism"] = "Shared-memory (8 OpenMP threads)"
     openmp_data["hardware"] = "Multi-core CPU"
+    openmp_data["n_features"] = 52
+    openmp_data["n_classes"] = 4
+    openmp_data["n_train"] = 588717
+    if openmp_data["gflops"] > 0 and openmp_data["total_ms"] > 0:
+        openmp_data["flops"] = int(openmp_data["gflops"] * (openmp_data["total_ms"] / 1000) * 1e9)
     models["openmp"] = openmp_data
 
     # Thread - read from thread/thread_summary.csv
     thread_summary = str(PROJECT_ROOT / "thread" / "thread_summary.csv")
     thread_data = parse_thread_summary(thread_summary)
     thread_result = {
-        "accuracy": 91.7,  # Macro F1 from training (similar to MPI/OpenMP)
+        "accuracy": 82.33,  # Static value — no accuracy log file available for C++ Thread
         "total_ms": float(thread_data.get("total_ms", 0)) if thread_data.get("total_ms") else 0,
         "train_ms": float(thread_data.get("train_ms", 0)) if thread_data.get("train_ms") else 0,
         "predict_ms": float(thread_data.get("predict_ms", 0)) if thread_data.get("predict_ms") else 0,
         "dbscan_ms": float(thread_data.get("dbscan_ms", 0)) if thread_data.get("dbscan_ms") else 0,
         "gflops": float(thread_data.get("gflops", 0)) if thread_data.get("gflops") else 0,
+        "flops": int(thread_data.get("flops", 0)) if thread_data.get("flops") else 0,
+        "n_features": 52,
+        "n_classes": 4,
+        "n_train": 588717,
+        "n_test": 756226,
         "technique": "C++ Thread Kernel SVM",
         "name": "C++ Thread",
         "description": "Shared-memory parallel using C++ std::thread. RBF Kernel SVM with One-vs-One voting.",
@@ -578,168 +655,202 @@ def load_dbscan_model(model_id: str) -> dict:
         return None
 
 
+# Normal label variants across all model flavours
+_NORMAL_LABELS = {"Normal", "NormalTraffic"}
+
+# Per-architecture confidence thresholds matching the C++ infer code:
+#   cuda_infer.cu  CONF_THRESHOLD = 0.5   (conf = votes/3, uncertain if ≤1/3 pairs won)
+#   mpi_infer.cpp  CONF_THRESHOLD = 0.8   (only perfect 3/3 wins are confident)
+#   omp_infer.cpp  CONF_THRESHOLD = 0.67  (only perfect 3/3 wins are confident)
+#   thread/pyspark CONF_THRESHOLD = 0.5
+MODEL_CONF_THRESHOLDS = {
+    "cuda":    0.5,
+    "mpi":     0.8,
+    "openmp":  0.67,
+    "thread":  0.5,
+    "pyspark": 0.5,
+}
+
+# Holdout class names (alphabetically sorted LabelEncoder IDs 0,1,6 from CICIDS2017)
+HOLDOUT_CLASS_NAMES = {0: "Bots", 1: "BruteForce", 6: "WebAttacks"}
+
+
 def apply_dbscan_hybrid(results: list, predictor, X: np.ndarray, conf_threshold: float = 0.5) -> Tuple[list, dict]:
     """
-    Apply DBSCAN to uncertain predictions to detect novel attacks.
-    Uses pre-trained DBSCAN model if available, otherwise falls back to online clustering.
+    Hybrid SVM+DBSCAN pipeline matching cuda_infer.cu / mpi_infer.cpp logic:
 
-    Returns: (updated_results, dbscan_stats)
+      conf > threshold                        → SVM prediction accepted (confident)
+      conf <= threshold AND pred == Normal    → keep Normal directly, skip DBSCAN
+      conf <= threshold AND pred == attack    → DBSCAN uncertain-attack pool
+
+    DBSCAN clusters uncertain attack samples in raw OvO score space.
+    Clustered samples are labelled by centroid OvO simulation.
+    Noise (isolated) points stay with their SVM label marked Unverified.
     """
     model_id = predictor.model_id
 
-    # Separate confident vs uncertain samples
-    confident_idx = []
-    uncertain_idx = []
+    confident_idx         = []
+    uncertain_normal_idx  = []   # low-conf Normal → keep as Normal, skip DBSCAN
+    uncertain_attack_idx  = []   # low-conf attack  → DBSCAN
 
     for i, pred in enumerate(results):
-        if pred["confidence"] >= conf_threshold:
+        if pred["confidence"] > conf_threshold:
             confident_idx.append(i)
         else:
-            uncertain_idx.append(i)
+            lbl = pred["predicted_label"]
+            if lbl in _NORMAL_LABELS or lbl.startswith("Normal"):
+                uncertain_normal_idx.append(i)
+            else:
+                uncertain_attack_idx.append(i)
 
-    n_confident = len(confident_idx)
-    n_uncertain = len(uncertain_idx)
+    n_confident        = len(confident_idx)
+    n_uncertain_normal = len(uncertain_normal_idx)
+    n_uncertain_attack = len(uncertain_attack_idx)
 
     stats = {
-        "n_confident": n_confident,
-        "n_uncertain": n_uncertain,
-        "n_novel": 0,
-        "n_unknown": 0,
-        "n_clusters": 0,
-        "eps": 0.0,
-        "conf_threshold": conf_threshold,
-        "using_pretrained": False
+        "n_confident":        n_confident,
+        "n_uncertain_normal": n_uncertain_normal,
+        "n_uncertain":        n_uncertain_attack,
+        "n_novel":            0,
+        "n_unknown":          0,
+        "n_clusters":         0,
+        "eps":                0.0,
+        "conf_threshold":     conf_threshold,
+        "using_pretrained":   False,
     }
-
-    # If no uncertain samples, return as-is
-    if n_uncertain == 0:
-        return results, stats
-
-    # Try to load pre-trained DBSCAN model
-    dbscan_model = load_dbscan_model(model_id)
-
-    # Compute raw scores for uncertain samples
-    # For Linear SVM: raw_scores = X @ W.T + b (6-dim for OvO)
-    # For RFF-SVM: use transformed features
-    X_uncertain = X[uncertain_idx]
-
-    if hasattr(predictor, 'W') and predictor.W is not None:
-        # Linear SVM - compute raw OvO scores
-        raw_scores = X_uncertain @ predictor.W.T + predictor.b
-    elif hasattr(predictor, 'rff_W') and predictor.rff_W is not None:
-        # RFF-SVM - compute RFF features then scores
-        D = predictor.Omega.shape[0]
-        Z = np.sqrt(2.0 / D) * np.cos(X_uncertain @ predictor.Omega.T + predictor.phi)
-        raw_scores = Z @ predictor.rff_W.T + predictor.rff_b
-    else:
-        # Fallback to votes
-        raw_scores = []
-        for i in uncertain_idx:
-            votes = results[i].get("votes", {})
-            score_vec = [votes.get(label, 0.0) for label in sorted(votes.keys())]
-            raw_scores.append(score_vec)
-        raw_scores = np.array(raw_scores, dtype=np.float32)
-
-    if dbscan_model is not None and dbscan_model["n_dim"] == raw_scores.shape[1]:
-        # Use pre-trained DBSCAN model (centroids are in score space)
-        stats["using_pretrained"] = True
-        stats["n_clusters"] = dbscan_model["n_clusters"]
-        stats["eps"] = dbscan_model["eps"]
-
-        centroids = dbscan_model["centroids"]
-
-        # Compute all distances to find adaptive threshold
-        all_distances = []
-        for score_vec in raw_scores:
-            dists = np.linalg.norm(centroids - score_vec, axis=1)
-            all_distances.append(np.min(dists))
-
-        # Use median distance as threshold (samples closer than median are verified)
-        adaptive_threshold = float(np.median(all_distances)) if all_distances else dbscan_model["eps"] * 10
-
-        # Classify uncertain samples by nearest centroid
-        n_matched = 0
-        n_unknown = 0
-
-        for local_idx, global_idx in enumerate(uncertain_idx):
-            score_vec = raw_scores[local_idx]
-
-            # Find nearest centroid in score space
-            distances = np.linalg.norm(centroids - score_vec, axis=1)
-            min_dist = np.min(distances)
-            nearest_cluster = np.argmin(distances)
-
-            # Use adaptive threshold based on median distance
-            max_dist = adaptive_threshold
-
-            if min_dist <= max_dist:
-                # Close to a known cluster - confirm original prediction
-                orig_label = results[global_idx]["predicted_label"]
-                results[global_idx]["predicted_label"] = f"{orig_label} (DBSCAN verified)"
-                results[global_idx]["cluster_id"] = int(nearest_cluster)
-                results[global_idx]["is_uncertain"] = False
-                results[global_idx]["is_novel"] = False
-                results[global_idx]["dbscan_distance"] = float(min_dist)
-                n_matched += 1
-            else:
-                # Too far from known clusters - potential novel attack
-                results[global_idx]["predicted_label"] = "Unknown (Novel Pattern)"
-                results[global_idx]["cluster_id"] = -1
-                results[global_idx]["is_uncertain"] = True
-                results[global_idx]["is_novel"] = True
-                results[global_idx]["dbscan_distance"] = float(min_dist)
-                n_unknown += 1
-
-        stats["n_novel"] = n_matched
-        stats["n_unknown"] = n_unknown
-
-    else:
-        # Fallback to online DBSCAN clustering using raw scores
-        # Auto-tune eps
-        if n_uncertain > 1:
-            pairwise_dists = pdist(raw_scores, metric='euclidean')
-            eps = float(np.percentile(pairwise_dists, 30))
-        else:
-            eps = 0.5
-
-        stats["eps"] = eps
-
-        # Apply DBSCAN
-        min_samples = 3 if n_uncertain < 20 else 8
-        dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
-
-        try:
-            cluster_labels = dbscan.fit_predict(raw_scores)
-        except:
-            return results, stats
-
-        n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
-        n_noise = np.sum(cluster_labels == -1)
-
-        stats["n_clusters"] = n_clusters
-        stats["n_unknown"] = int(n_noise)
-        stats["n_novel"] = n_uncertain - n_noise
-
-        for local_idx, cluster_id in enumerate(cluster_labels):
-            global_idx = uncertain_idx[local_idx]
-
-            if cluster_id == -1:
-                results[global_idx]["predicted_label"] = "Unknown"
-                results[global_idx]["cluster_id"] = -1
-                results[global_idx]["is_uncertain"] = True
-                results[global_idx]["is_novel"] = False
-            else:
-                results[global_idx]["cluster_id"] = int(cluster_id)
-                results[global_idx]["is_uncertain"] = True
-                results[global_idx]["is_novel"] = True
-                orig_label = results[global_idx]["predicted_label"]
-                results[global_idx]["predicted_label"] = f"{orig_label} (Novel Pattern)"
 
     # Mark confident predictions
     for i in confident_idx:
         results[i]["is_uncertain"] = False
-        results[i]["is_novel"] = False
-        results[i]["cluster_id"] = None
+        results[i]["is_novel"]     = False
+        results[i]["cluster_id"]   = None
+
+    # Uncertain Normal → stay Normal, just flag as low-confidence
+    for i in uncertain_normal_idx:
+        results[i]["is_uncertain"] = True
+        results[i]["is_novel"]     = False
+        results[i]["cluster_id"]   = None
+
+    if n_uncertain_attack == 0:
+        return results, stats
+
+    X_uncertain = X[uncertain_attack_idx]
+
+    # Build DBSCAN feature space — raw OvO scores (same space as C++ infer code)
+    if hasattr(predictor, 'W') and predictor.W is not None:
+        # Linear SVM → 6-D raw OvO decision values (mpi_infer.cpp / omp_infer.cpp)
+        raw_scores = X_uncertain @ predictor.W.T + predictor.b
+    elif hasattr(predictor, 'rff_W') and predictor.rff_W is not None:
+        # RFF-SVM → RFF transform then 6-D OvO scores (cuda_infer.cu)
+        D = predictor.Omega.shape[0]
+        Z = np.sqrt(2.0 / D) * np.cos(X_uncertain @ predictor.Omega.T + predictor.phi)
+        raw_scores = Z @ predictor.rff_W.T + predictor.rff_b
+    else:
+        # Kernel SVM fallback → 4-D vote-count space
+        raw_scores = []
+        for i in uncertain_attack_idx:
+            v = results[i].get("votes", {})
+            raw_scores.append([v.get(lbl, 0.0) for lbl in sorted(v.keys())])
+        raw_scores = np.array(raw_scores, dtype=np.float32)
+
+    # Try pre-trained DBSCAN model
+    dbscan_model = load_dbscan_model(model_id)
+
+    if dbscan_model is not None and dbscan_model["n_dim"] == raw_scores.shape[1]:
+        stats["using_pretrained"] = True
+        stats["n_clusters"]       = dbscan_model["n_clusters"]
+        stats["eps"]              = dbscan_model["eps"]
+        centroids = dbscan_model["centroids"]
+
+        all_dists = [float(np.min(np.linalg.norm(centroids - sv, axis=1))) for sv in raw_scores]
+        adaptive_threshold = float(np.median(all_dists)) if all_dists else dbscan_model["eps"] * 10
+
+        n_novel = 0
+        n_unknown = 0
+        for local_idx, global_idx in enumerate(uncertain_attack_idx):
+            dists = np.linalg.norm(centroids - raw_scores[local_idx], axis=1)
+            min_dist = float(np.min(dists))
+            nearest  = int(np.argmin(dists))
+            if min_dist <= adaptive_threshold:
+                orig = results[global_idx]["predicted_label"]
+                results[global_idx]["predicted_label"] = f"{orig} (DBSCAN verified)"
+                results[global_idx]["cluster_id"]      = nearest
+                results[global_idx]["is_uncertain"]    = False
+                results[global_idx]["is_novel"]        = False
+                results[global_idx]["dbscan_distance"] = min_dist
+                n_novel += 1
+            else:
+                results[global_idx]["predicted_label"] = "Unknown (Novel Pattern)"
+                results[global_idx]["cluster_id"]      = -1
+                results[global_idx]["is_uncertain"]    = True
+                results[global_idx]["is_novel"]        = True
+                results[global_idx]["dbscan_distance"] = min_dist
+                n_unknown += 1
+
+        stats["n_novel"]   = n_novel
+        stats["n_unknown"] = n_unknown
+
+    else:
+        # Online DBSCAN — auto-tune eps from pairwise distances (30th percentile)
+        n_db = len(uncertain_attack_idx)
+        if n_db > 1:
+            pairwise_dists = pdist(raw_scores, metric='euclidean')
+            eps = float(np.percentile(pairwise_dists, 30)) if pairwise_dists.size else 0.5
+        else:
+            eps = 0.5
+        eps = max(eps, 1e-6)
+        stats["eps"] = eps
+
+        min_samples = max(2, min(3, n_db))
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+        try:
+            cluster_labels = dbscan.fit_predict(raw_scores)
+        except Exception:
+            return results, stats
+
+        n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
+        stats["n_clusters"] = n_clusters
+        stats["n_unknown"]  = int(np.sum(cluster_labels == -1))
+        stats["n_novel"]    = n_db - stats["n_unknown"]
+
+        # Simulate per-cluster attack label from centroid OvO scores
+        cluster_vecs: dict = {}
+        for local_idx, cid in enumerate(cluster_labels):
+            if cid >= 0:
+                cluster_vecs.setdefault(cid, []).append(raw_scores[local_idx])
+
+        svm_names = ["DDoS", "DoS", "NormalTraffic", "PortScan"]
+        ovo_pairs = [(0,1),(0,2),(0,3),(1,2),(1,3),(2,3)]
+        cluster_label_map: dict = {}
+        for cid, vecs in cluster_vecs.items():
+            centroid = np.mean(vecs, axis=0)
+            if centroid.shape[0] == 6:   # 6-D OvO score space
+                vote_sim = [0] * 4
+                for pi, (pa, pb) in enumerate(ovo_pairs):
+                    if centroid[pi] >= 0:
+                        vote_sim[pa] += 1
+                    else:
+                        vote_sim[pb] += 1
+                cluster_label_map[cid] = svm_names[int(np.argmax(vote_sim))]
+            else:                        # 4-D vote-count space
+                cluster_label_map[cid] = svm_names[int(np.argmax(centroid))]
+
+        for local_idx, cid in enumerate(cluster_labels):
+            global_idx = uncertain_attack_idx[local_idx]
+            if cid == -1:
+                # Noise: isolated uncertain attack — keep SVM label, flag unverified
+                orig = results[global_idx]["predicted_label"]
+                results[global_idx]["predicted_label"] = f"{orig} (Unverified)"
+                results[global_idx]["cluster_id"]      = -1
+                results[global_idx]["is_uncertain"]    = True
+                results[global_idx]["is_novel"]        = False
+            else:
+                # Clustered: novel attack pattern identified by centroid simulation
+                attack_lbl = cluster_label_map.get(cid, "Novel Attack")
+                results[global_idx]["predicted_label"] = f"Novel: {attack_lbl} (Cluster {cid})"
+                results[global_idx]["cluster_id"]      = cid
+                results[global_idx]["is_uncertain"]    = True
+                results[global_idx]["is_novel"]        = True
 
     return results, stats
 
@@ -974,7 +1085,7 @@ class SVMPredictor:
         best_cls = [self.class_ids[b] for b in best_pos]
         confs = score_mat[np.arange(N), best_pos] / np.maximum(vote_mat[np.arange(N), best_pos], 1)
 
-        return self._format_results(N, best_cls, confs, vote_mat)
+        return self._format_results(N, best_cls, confs, score_mat)
 
     def _predict_linear(self, X: np.ndarray) -> list:
         """Predict using linear SVM (One-vs-One for MPI/OpenMP).
@@ -990,20 +1101,26 @@ class SVMPredictor:
         if K == 6 and self.n_classes == 4:
             # OvO pairs: (pos, neg) - positive class wins if score > 0
             pairs = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
-            votes = np.zeros((N, self.n_classes), dtype=np.int32)
+            votes     = np.zeros((N, self.n_classes), dtype=np.int32)
+            score_sum = np.zeros((N, self.n_classes), dtype=np.float32)
 
             for clf_idx, (pos, neg) in enumerate(pairs):
-                # If score > 0, pos wins; else neg wins
-                winners = np.where(scores[:, clf_idx] > 0, pos, neg)
-                for i, w in enumerate(winners):
-                    votes[i, w] += 1
+                clf_scores = scores[:, clf_idx]
+                pos_wins   = clf_scores > 0
+                votes[:, pos] += pos_wins.astype(np.int32)
+                votes[:, neg] += (~pos_wins).astype(np.int32)
+                # Accumulate signed decision margin: winner gets |score|, loser gets 0
+                score_sum[:, pos] += np.where(pos_wins,  clf_scores, 0).astype(np.float32)
+                score_sum[:, neg] += np.where(~pos_wins, -clf_scores, 0).astype(np.float32)
 
             best_cls = votes.argmax(axis=1)
-            # Confidence = votes for winner / total classifiers
-            confs = votes[np.arange(N), best_cls] / K
+            # Confidence = votes for winner / max possible votes per class (n_classes - 1).
+            # Each class only appears in (n_classes-1) OvO pairs, so max votes = 3, not K=6.
+            # Dividing by K would cap confidence at 0.5; divide by (n_classes-1) gives [0, 1].
+            confs = votes[np.arange(N), best_cls] / (self.n_classes - 1)
 
-            # Convert votes to float for format_results
-            return self._format_results(N, best_cls, confs, votes.astype(np.float32))
+            # Pass accumulated decision margins so frontend shows real SVM scores
+            return self._format_results(N, best_cls, confs, score_sum)
         else:
             # Fallback to direct scores (One-vs-All or direct classification)
             best_cls = scores.argmax(axis=1)
@@ -1032,20 +1149,24 @@ class SVMPredictor:
         if K == 6 and self.n_classes == 4:
             # OvO pairs: (pos, neg) - positive class wins if score > 0
             pairs = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
-            votes = np.zeros((N, self.n_classes), dtype=np.int32)
+            votes     = np.zeros((N, self.n_classes), dtype=np.int32)
+            score_sum = np.zeros((N, self.n_classes), dtype=np.float32)
 
             for clf_idx, (pos, neg) in enumerate(pairs):
-                # If score > 0, pos wins; else neg wins
-                winners = np.where(scores[:, clf_idx] > 0, pos, neg)
-                for i, w in enumerate(winners):
-                    votes[i, w] += 1
+                clf_scores = scores[:, clf_idx]
+                pos_wins   = clf_scores > 0
+                votes[:, pos] += pos_wins.astype(np.int32)
+                votes[:, neg] += (~pos_wins).astype(np.int32)
+                score_sum[:, pos] += np.where(pos_wins,  clf_scores, 0).astype(np.float32)
+                score_sum[:, neg] += np.where(~pos_wins, -clf_scores, 0).astype(np.float32)
 
             best_cls = votes.argmax(axis=1)
-            # Confidence = votes for winner / total classifiers
-            confs = votes[np.arange(N), best_cls] / K
+            # Confidence = votes for winner / max possible votes per class (n_classes - 1).
+            # Each class only appears in (n_classes-1) OvO pairs, so max votes = 3, not K=6.
+            confs = votes[np.arange(N), best_cls] / (self.n_classes - 1)
 
-            # Convert votes to float for format_results
-            return self._format_results(N, best_cls, confs, votes.astype(np.float32))
+            # Pass accumulated decision margins so frontend shows real SVM scores
+            return self._format_results(N, best_cls, confs, score_sum)
         else:
             # Fallback to direct scores
             best_cls = scores.argmax(axis=1)
@@ -1143,14 +1264,21 @@ async def predict_samples(data: dict):
 
 
 @app.post("/api/predict/csv")
-async def predict_csv(file: UploadFile = File(...), model: str = Form("pyspark")):
-    """Upload CSV and get predictions."""
+async def predict_csv(
+    file: UploadFile = File(...),
+    model: str = Form("pyspark"),
+    use_dbscan: str = Form("false"),
+    conf_threshold: float = Form(0.5),
+):
+    """Upload CSV and get predictions, with optional DBSCAN hybrid detection."""
     if model not in ["pyspark", "cuda", "mpi", "openmp", "thread"]:
         raise HTTPException(status_code=400, detail=f"Invalid model: {model}")
 
     predictor = get_predictor(model)
     if not predictor.loaded:
         raise HTTPException(status_code=503, detail=f"Model '{model}' not loaded")
+
+    dbscan_enabled = use_dbscan.strip().lower() in ("true", "1", "yes")
 
     try:
         content = await file.read()
@@ -1166,17 +1294,26 @@ async def predict_csv(file: UploadFile = File(...), model: str = Form("pyspark")
         X = np.array(features, dtype=np.float64)
 
         results = predictor.predict(X[:, :52])
+
+        dbscan_stats = None
+        if dbscan_enabled:
+            results, dbscan_stats = apply_dbscan_hybrid(results, predictor, X[:, :52], conf_threshold)
+
         class_counts = {}
         for r in results:
             lbl = r["predicted_label"]
             class_counts[lbl] = class_counts.get(lbl, 0) + 1
 
-        return {
+        response = {
             "predictions": results,
             "n_samples": len(results),
             "model": model,
             "summary": class_counts,
         }
+        if dbscan_stats:
+            response["dbscan"] = dbscan_stats
+
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"CSV prediction failed: {str(e)}")
 
@@ -1193,10 +1330,12 @@ def predict_info(model: str = "pyspark"):
 
     return {
         **info,
-        "model_name": model_data.get("name", model),
-        "technique": model_data.get("technique", ""),
-        "description": model_data.get("description", ""),
-        "accuracy": model_data.get("accuracy", 0),
+        "model_name":    model_data.get("name", model),
+        "technique":     model_data.get("technique", ""),
+        "description":   model_data.get("description", ""),
+        "accuracy":      model_data.get("accuracy", 0),
+        "conf_threshold": MODEL_CONF_THRESHOLDS.get(model, 0.5),
+        "holdout_classes": list(HOLDOUT_CLASS_NAMES.values()),
     }
 
 
