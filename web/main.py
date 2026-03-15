@@ -270,14 +270,18 @@ def parse_hybrid_log(filepath: str) -> dict:
             metric = row.get("metric", "")
             value = row.get("value", "0")
             try:
-                if metric in ["macro_f1_hybrid", "macro_f1"]:
+                # Handle new field names from main branch
+                if metric in ["accuracy_hybrid", "accuracy"]:
+                    result["accuracy"] = float(value) * 100
+                elif metric in ["macro_f1_hybrid", "macro_f1"]:
                     result["macro_f1"] = float(value)
-                    # Only use as accuracy fallback if svm_confident_acc not found
+                    # Only use as accuracy fallback if accuracy not found
                     if result["accuracy"] == 0:
                         result["accuracy"] = float(value) * 100
                 elif metric == "svm_confident_acc":
-                    # Primary accuracy metric
-                    result["accuracy"] = float(value) * 100
+                    # Fallback for old format
+                    if result["accuracy"] == 0:
+                        result["accuracy"] = float(value) * 100
                 elif metric == "n_test":
                     result["n_test"] = int(value)
                 elif metric == "n_clusters":
@@ -290,12 +294,49 @@ def parse_hybrid_log(filepath: str) -> dict:
                     result["predict_ms"] = float(value)
                 elif metric == "dbscan_ms":
                     result["dbscan_ms"] = float(value)
-                elif metric == "total_ms":
+                elif metric in ["total_ms", "total_time_ms"]:
                     result["total_ms"] = float(value)
-                elif metric == "gflops":
-                    result["gflops"] = float(value)
+                elif metric in ["gflops", "svm_gflops", "predict_gflops"]:
+                    # Use first gflops value found
+                    if result["gflops"] == 0:
+                        result["gflops"] = float(value)
             except:
                 pass
+    return result
+
+
+def parse_cuda_training_log(filepath: str) -> dict:
+    """Parse CUDA training_log.csv and get best epoch metrics."""
+    result = {"accuracy": 0, "macro_f1": 0, "n_test": 752254, "n_clusters": 0, "detection_rate": 0,
+              "train_ms": 0, "predict_ms": 0, "dbscan_ms": 0, "total_ms": 0, "gflops": 0}
+    if not os.path.exists(filepath):
+        return result
+
+    try:
+        with open(filepath, "r") as f:
+            reader = csv.DictReader(f)
+            best_f1 = 0
+            best_row = None
+
+            # Find best epoch by macro F1
+            for row in reader:
+                f1 = float(row.get("val_macro_f1", 0))
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_row = row
+
+            if best_row:
+                result["accuracy"] = float(best_row.get("val_accuracy", 0)) * 100
+                result["macro_f1"] = float(best_row.get("val_macro_f1", 0))
+                result["train_ms"] = float(best_row.get("train_ms", 0))
+                result["predict_ms"] = float(best_row.get("predict_ms", 0))
+                result["dbscan_ms"] = float(best_row.get("dbscan_ms", 0))
+                result["total_ms"] = float(best_row.get("total_ms", 0))
+                result["gflops"] = float(best_row.get("gflops", 0))
+                result["n_clusters"] = int(best_row.get("n_clusters", 0))
+    except Exception as e:
+        print(f"Error parsing CUDA training log: {e}")
+
     return result
 
 
@@ -303,17 +344,9 @@ def get_all_models():
     """Collect all model data from output files in respective folders only."""
     models = {}
 
-    # CUDA - read from cuda/log/hybrid_log.csv + cuda/log/cuda_rff_svm_3755.out
-    cuda_log = str(PROJECT_ROOT / "cuda" / "log" / "hybrid_log.csv")
-    cuda_data = parse_hybrid_log(cuda_log)
-
-    # Read additional data from cuda_rff_svm_3755.out
-    cuda_out_path = PROJECT_ROOT / "cuda" / "log" / "cuda_rff_svm_3755.out"
-    if cuda_out_path.exists():
-        cuda_timing = parse_output_file(str(cuda_out_path))
-        for key in ["train_ms", "predict_ms", "dbscan_ms", "total_ms", "gflops"]:
-            if cuda_timing.get(key, 0) > 0:
-                cuda_data[key] = cuda_timing[key]
+    # CUDA - read from cuda/log/training_log.csv (new format from main branch)
+    cuda_training_log = str(PROJECT_ROOT / "cuda" / "log" / "training_log.csv")
+    cuda_data = parse_cuda_training_log(cuda_training_log)
 
     cuda_data["technique"] = "CUDA RFF-SVM"
     cuda_data["name"] = "CUDA"
@@ -500,12 +533,60 @@ def get_overview():
 
 # ===================== DBSCAN Hybrid Classifier =====================
 
+def load_dbscan_model(model_id: str) -> dict:
+    """Load pre-trained DBSCAN model from model folder.
+
+    Format: n_clusters(int), eps(float), min_samples(int), threshold(float), n_dim(int),
+            centroids(n_clusters x n_dim floats), radii(n_clusters floats)
+    """
+    dbscan_path = PROJECT_ROOT / model_id / "model" / "dbscan_model.bin"
+
+    if not dbscan_path.exists():
+        return None
+
+    try:
+        with open(dbscan_path, "rb") as f:
+            # Read header
+            n_clusters = struct.unpack('i', f.read(4))[0]
+            eps = struct.unpack('f', f.read(4))[0]
+            min_samples = struct.unpack('i', f.read(4))[0]
+            threshold = struct.unpack('f', f.read(4))[0]
+            n_dim = struct.unpack('i', f.read(4))[0]
+
+            # Read centroids (in score/vote space, not feature space)
+            centroid_size = n_clusters * n_dim
+            centroids_flat = struct.unpack(f'{centroid_size}f', f.read(4 * centroid_size))
+            centroids = np.array(centroids_flat, dtype=np.float32).reshape(n_clusters, n_dim)
+
+            # Read cluster radii (optional - remaining bytes)
+            remaining = f.read()
+            radii = None
+            if len(remaining) >= n_clusters * 4:
+                radii = np.array(struct.unpack(f'{n_clusters}f', remaining[:n_clusters * 4]), dtype=np.float32)
+
+            return {
+                "n_clusters": n_clusters,
+                "eps": eps,
+                "min_samples": min_samples,
+                "threshold": threshold,
+                "n_dim": n_dim,
+                "centroids": centroids,
+                "radii": radii
+            }
+    except Exception as e:
+        print(f"[WARN] Failed to load DBSCAN model for {model_id}: {e}")
+        return None
+
+
 def apply_dbscan_hybrid(results: list, predictor, X: np.ndarray, conf_threshold: float = 0.5) -> Tuple[list, dict]:
     """
     Apply DBSCAN to uncertain predictions to detect novel attacks.
+    Uses pre-trained DBSCAN model if available, otherwise falls back to online clustering.
 
     Returns: (updated_results, dbscan_stats)
     """
+    model_id = predictor.model_id
+
     # Separate confident vs uncertain samples
     confident_idx = []
     uncertain_idx = []
@@ -526,70 +607,133 @@ def apply_dbscan_hybrid(results: list, predictor, X: np.ndarray, conf_threshold:
         "n_unknown": 0,
         "n_clusters": 0,
         "eps": 0.0,
-        "conf_threshold": conf_threshold
+        "conf_threshold": conf_threshold,
+        "using_pretrained": False
     }
 
     # If no uncertain samples, return as-is
     if n_uncertain == 0:
         return results, stats
 
-    # Build score matrix for uncertain samples
-    # For clustering, we use the raw vote/score vectors from SVM
-    uncertain_scores = []
-    for i in uncertain_idx:
-        # Get vote scores for all classes
-        votes = results[i].get("votes", {})
-        # Convert to numeric array (order by class ID)
-        score_vec = [votes.get(label, 0.0) for label in sorted(votes.keys())]
-        uncertain_scores.append(score_vec)
+    # Try to load pre-trained DBSCAN model
+    dbscan_model = load_dbscan_model(model_id)
 
-    X_uncertain = np.array(uncertain_scores, dtype=np.float64)
+    # Compute raw scores for uncertain samples
+    # For Linear SVM: raw_scores = X @ W.T + b (6-dim for OvO)
+    # For RFF-SVM: use transformed features
+    X_uncertain = X[uncertain_idx]
 
-    # Auto-tune eps using median of pairwise distances
-    if n_uncertain > 1:
-        from scipy.spatial.distance import pdist
-        pairwise_dists = pdist(X_uncertain, metric='euclidean')
-        eps = float(np.percentile(pairwise_dists, 30))  # Use 30th percentile as eps
+    if hasattr(predictor, 'W') and predictor.W is not None:
+        # Linear SVM - compute raw OvO scores
+        raw_scores = X_uncertain @ predictor.W.T + predictor.b
+    elif hasattr(predictor, 'rff_W') and predictor.rff_W is not None:
+        # RFF-SVM - compute RFF features then scores
+        D = predictor.Omega.shape[0]
+        Z = np.sqrt(2.0 / D) * np.cos(X_uncertain @ predictor.Omega.T + predictor.phi)
+        raw_scores = Z @ predictor.rff_W.T + predictor.rff_b
     else:
-        eps = 0.5
+        # Fallback to votes
+        raw_scores = []
+        for i in uncertain_idx:
+            votes = results[i].get("votes", {})
+            score_vec = [votes.get(label, 0.0) for label in sorted(votes.keys())]
+            raw_scores.append(score_vec)
+        raw_scores = np.array(raw_scores, dtype=np.float32)
 
-    stats["eps"] = eps
+    if dbscan_model is not None and dbscan_model["n_dim"] == raw_scores.shape[1]:
+        # Use pre-trained DBSCAN model (centroids are in score space)
+        stats["using_pretrained"] = True
+        stats["n_clusters"] = dbscan_model["n_clusters"]
+        stats["eps"] = dbscan_model["eps"]
 
-    # Apply DBSCAN (min_samples=3 for small batches, 8 for larger)
-    min_samples = 3 if n_uncertain < 20 else 8
-    dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+        centroids = dbscan_model["centroids"]
 
-    try:
-        cluster_labels = dbscan.fit_predict(X_uncertain)
-    except:
-        # Fallback if DBSCAN fails
-        return results, stats
+        # Compute all distances to find adaptive threshold
+        all_distances = []
+        for score_vec in raw_scores:
+            dists = np.linalg.norm(centroids - score_vec, axis=1)
+            all_distances.append(np.min(dists))
 
-    # Update results based on clustering
-    n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
-    n_noise = np.sum(cluster_labels == -1)
+        # Use median distance as threshold (samples closer than median are verified)
+        adaptive_threshold = float(np.median(all_distances)) if all_distances else dbscan_model["eps"] * 10
 
-    stats["n_clusters"] = n_clusters
-    stats["n_unknown"] = int(n_noise)
-    stats["n_novel"] = n_uncertain - n_noise
+        # Classify uncertain samples by nearest centroid
+        n_matched = 0
+        n_unknown = 0
 
-    for local_idx, cluster_id in enumerate(cluster_labels):
-        global_idx = uncertain_idx[local_idx]
+        for local_idx, global_idx in enumerate(uncertain_idx):
+            score_vec = raw_scores[local_idx]
 
-        if cluster_id == -1:
-            # Noise point - truly unknown
-            results[global_idx]["predicted_label"] = "Unknown"
-            results[global_idx]["cluster_id"] = -1
-            results[global_idx]["is_uncertain"] = True
-            results[global_idx]["is_novel"] = False
+            # Find nearest centroid in score space
+            distances = np.linalg.norm(centroids - score_vec, axis=1)
+            min_dist = np.min(distances)
+            nearest_cluster = np.argmin(distances)
+
+            # Use adaptive threshold based on median distance
+            max_dist = adaptive_threshold
+
+            if min_dist <= max_dist:
+                # Close to a known cluster - confirm original prediction
+                orig_label = results[global_idx]["predicted_label"]
+                results[global_idx]["predicted_label"] = f"{orig_label} (DBSCAN verified)"
+                results[global_idx]["cluster_id"] = int(nearest_cluster)
+                results[global_idx]["is_uncertain"] = False
+                results[global_idx]["is_novel"] = False
+                results[global_idx]["dbscan_distance"] = float(min_dist)
+                n_matched += 1
+            else:
+                # Too far from known clusters - potential novel attack
+                results[global_idx]["predicted_label"] = "Unknown (Novel Pattern)"
+                results[global_idx]["cluster_id"] = -1
+                results[global_idx]["is_uncertain"] = True
+                results[global_idx]["is_novel"] = True
+                results[global_idx]["dbscan_distance"] = float(min_dist)
+                n_unknown += 1
+
+        stats["n_novel"] = n_matched
+        stats["n_unknown"] = n_unknown
+
+    else:
+        # Fallback to online DBSCAN clustering using raw scores
+        # Auto-tune eps
+        if n_uncertain > 1:
+            pairwise_dists = pdist(raw_scores, metric='euclidean')
+            eps = float(np.percentile(pairwise_dists, 30))
         else:
-            # Part of a cluster - novel attack pattern
-            results[global_idx]["cluster_id"] = int(cluster_id)
-            results[global_idx]["is_uncertain"] = True
-            results[global_idx]["is_novel"] = True
-            # Keep original prediction but mark as uncertain/novel
-            orig_label = results[global_idx]["predicted_label"]
-            results[global_idx]["predicted_label"] = f"{orig_label} (Novel Pattern)"
+            eps = 0.5
+
+        stats["eps"] = eps
+
+        # Apply DBSCAN
+        min_samples = 3 if n_uncertain < 20 else 8
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+
+        try:
+            cluster_labels = dbscan.fit_predict(raw_scores)
+        except:
+            return results, stats
+
+        n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
+        n_noise = np.sum(cluster_labels == -1)
+
+        stats["n_clusters"] = n_clusters
+        stats["n_unknown"] = int(n_noise)
+        stats["n_novel"] = n_uncertain - n_noise
+
+        for local_idx, cluster_id in enumerate(cluster_labels):
+            global_idx = uncertain_idx[local_idx]
+
+            if cluster_id == -1:
+                results[global_idx]["predicted_label"] = "Unknown"
+                results[global_idx]["cluster_id"] = -1
+                results[global_idx]["is_uncertain"] = True
+                results[global_idx]["is_novel"] = False
+            else:
+                results[global_idx]["cluster_id"] = int(cluster_id)
+                results[global_idx]["is_uncertain"] = True
+                results[global_idx]["is_novel"] = True
+                orig_label = results[global_idx]["predicted_label"]
+                results[global_idx]["predicted_label"] = f"{orig_label} (Novel Pattern)"
 
     # Mark confident predictions
     for i in confident_idx:
@@ -604,6 +748,7 @@ def apply_dbscan_hybrid(results: list, predictor, X: np.ndarray, conf_threshold:
 
 # Label maps
 LABEL_MAP_4CLASS = {0: "DDoS", 1: "DoS", 2: "NormalTraffic", 3: "PortScan"}
+LABEL_MAP_CUDA = {0: "DDoS", 1: "DoS", 2: "Normal", 3: "PortScan"}  # CUDA uses "Normal" not "NormalTraffic"
 LABEL_MAP_PYSPARK = {2: "DDoS", 3: "DoS", 4: "NormalTraffic", 5: "PortScan"}
 
 
@@ -660,7 +805,7 @@ class SVMPredictor:
             self.class_ids = data["svm_class_ids"]
             self.n_classes = len(self.class_ids)
             self.label_map = LABEL_MAP_PYSPARK
-            self.model_type = "pyspark_kernel"
+            self.model_type = "Kernel SVM (RBF)"
             self.loaded = True
             print(f"[INFO] Loaded pyspark SVM: {len(self.models)} sub-models")
         except Exception as e:
@@ -681,9 +826,9 @@ class SVMPredictor:
 
             self.W = np.array(W_flat, dtype=np.float32).reshape(n_classes, n_features)
             self.b = np.array(b, dtype=np.float32)
-            self.n_classes = n_classes
-            self.class_ids = list(range(n_classes))
-            self.model_type = "linear"
+            self.n_classes = n_classes if n_classes == 4 else 4  # OvO has 6 classifiers for 4 classes
+            self.class_ids = list(range(self.n_classes))
+            self.model_type = "Linear SVM (One-vs-One)"
             self.loaded = True
             print(f"[INFO] Loaded {model_id} SVM (linear): W={self.W.shape}")
         except Exception as e:
@@ -729,49 +874,62 @@ class SVMPredictor:
                 self.n_classes = len(self.class_ids)
                 self.gamma = 0.05  # Default gamma for RBF kernel
                 self.label_map = LABEL_MAP_PYSPARK  # Thread uses same class IDs as pyspark
-                self.model_type = "thread_kernel"
+                self.model_type = "Kernel SVM (RBF)"
                 self.loaded = True
                 print(f"[INFO] Loaded thread SVM (kernel): {len(self.models)} pairs, classes={self.class_ids}")
         except Exception as e:
             print(f"[WARN] Failed to load thread model: {e}")
 
     def _load_cuda_rff(self):
-        """Load CUDA RFF-SVM from binary files."""
-        model_dir = PROJECT_ROOT / "cuda" / "model"
-        omega_path = model_dir / "best_rff_Omega.bin"
-        phi_path = model_dir / "best_rff_phi.bin"
-        model_path = model_dir / "best_rff_model.bin"
+        """Load CUDA RFF-SVM from model_best.bin.
 
-        if not all(p.exists() for p in [omega_path, phi_path, model_path]):
-            print(f"[WARN] CUDA RFF model files not found in {model_dir}")
+        Binary format (matching infer.py):
+          Header: nc (int), nf (int), n_rff (int), ncls (int)
+          W: ncls * n_rff floats (classifier weights)
+          b: ncls floats (classifier biases)
+          omega: n_rff * nf floats (RFF projection matrix)
+          rff_b: n_rff floats (RFF bias/phase)
+        """
+        model_dir = PROJECT_ROOT / "cuda" / "model"
+        model_path = model_dir / "model_best.bin"
+
+        if not model_path.exists():
+            print(f"[WARN] CUDA model not found: {model_path}")
             return
 
         try:
-            # Load Omega
-            with open(omega_path, "rb") as f:
-                D, IN_F = struct.unpack('ii', f.read(8))
-                omega_flat = struct.unpack(f'{D * IN_F}f', f.read(4 * D * IN_F))
-            self.Omega = np.array(omega_flat, dtype=np.float32).reshape(D, IN_F)
-
-            # Load phi
-            with open(phi_path, "rb") as f:
-                D2 = struct.unpack('i', f.read(4))[0]
-                phi = struct.unpack(f'{D2}f', f.read(4 * D2))
-            self.phi = np.array(phi, dtype=np.float32)
-
-            # Load model weights
             with open(model_path, "rb") as f:
-                K, F = struct.unpack('ii', f.read(8))
-                W_flat = struct.unpack(f'{K * F}f', f.read(4 * K * F))
-                b = struct.unpack(f'{K}f', f.read(4 * K))
+                # Read header: nc, nf, n_rff, ncls
+                nc = struct.unpack('i', f.read(4))[0]      # n_classes (4)
+                nf = struct.unpack('i', f.read(4))[0]      # n_features (52)
+                n_rff = struct.unpack('i', f.read(4))[0]   # RFF dimension (1024)
+                ncls = struct.unpack('i', f.read(4))[0]    # n_classifiers (6 for OvO)
 
-            self.rff_W = np.array(W_flat, dtype=np.float32).reshape(K, F)
-            self.rff_b = np.array(b, dtype=np.float32)
-            self.n_classes = K
-            self.class_ids = list(range(K))
-            self.model_type = "rff"
+                # Read W: classifier weights (ncls x n_rff)
+                W_size = ncls * n_rff
+                W_flat = struct.unpack(f'{W_size}f', f.read(4 * W_size))
+                self.rff_W = np.array(W_flat, dtype=np.float32).reshape(ncls, n_rff)
+
+                # Read b: classifier biases (ncls)
+                b = struct.unpack(f'{ncls}f', f.read(4 * ncls))
+                self.rff_b = np.array(b, dtype=np.float32)
+
+                # Read omega: RFF projection matrix (n_rff x nf)
+                omega_size = n_rff * nf
+                omega_flat = struct.unpack(f'{omega_size}f', f.read(4 * omega_size))
+                self.Omega = np.array(omega_flat, dtype=np.float32).reshape(n_rff, nf)
+
+                # Read rff_b: RFF phase/bias (n_rff)
+                phi = struct.unpack(f'{n_rff}f', f.read(4 * n_rff))
+                self.phi = np.array(phi, dtype=np.float32)
+
+            self.n_classes = nc
+            self.n_features = nf
+            self.class_ids = list(range(nc))
+            self.label_map = LABEL_MAP_CUDA  # Use CUDA-specific labels
+            self.model_type = "Kernel SVM (RBF via RFF)"
             self.loaded = True
-            print(f"[INFO] Loaded CUDA RFF-SVM: Omega={self.Omega.shape}, W={self.rff_W.shape}")
+            print(f"[INFO] Loaded CUDA RFF-SVM: nc={nc}, nf={nf}, n_rff={n_rff}, ncls={ncls}")
         except Exception as e:
             print(f"[WARN] Failed to load CUDA RFF model: {e}")
 
@@ -780,12 +938,13 @@ class SVMPredictor:
         if not self.loaded:
             raise RuntimeError("Model not loaded")
 
-        if self.model_type in ["pyspark_kernel", "thread_kernel"]:
-            return self._predict_kernel(X)
-        elif self.model_type == "linear":
-            return self._predict_linear(X)
-        elif self.model_type == "rff":
+        # Check RFF first (before Kernel SVM, since RFF also contains "Kernel SVM")
+        if "RFF" in self.model_type:
             return self._predict_rff(X)
+        elif "Linear SVM" in self.model_type:
+            return self._predict_linear(X)
+        elif "Kernel SVM" in self.model_type:
+            return self._predict_kernel(X)
         else:
             raise RuntimeError(f"Unknown model type: {self.model_type}")
 
@@ -818,21 +977,80 @@ class SVMPredictor:
         return self._format_results(N, best_cls, confs, vote_mat)
 
     def _predict_linear(self, X: np.ndarray) -> list:
-        """Predict using linear SVM."""
-        scores = X @ self.W.T + self.b
-        best_cls = scores.argmax(axis=1)
-        confs = scores.max(axis=1)
-        return self._format_results(len(X), best_cls, confs, scores)
+        """Predict using linear SVM (One-vs-One for MPI/OpenMP).
+
+        Uses integer vote counting (same as CUDA):
+        - Each classifier gives 1 vote to winner
+        - Confidence = votes[winner] / n_classifiers
+        """
+        scores = X @ self.W.T + self.b  # (N, K)
+        N = X.shape[0]
+        K = self.W.shape[0]  # number of classifiers
+
+        if K == 6 and self.n_classes == 4:
+            # OvO pairs: (pos, neg) - positive class wins if score > 0
+            pairs = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
+            votes = np.zeros((N, self.n_classes), dtype=np.int32)
+
+            for clf_idx, (pos, neg) in enumerate(pairs):
+                # If score > 0, pos wins; else neg wins
+                winners = np.where(scores[:, clf_idx] > 0, pos, neg)
+                for i, w in enumerate(winners):
+                    votes[i, w] += 1
+
+            best_cls = votes.argmax(axis=1)
+            # Confidence = votes for winner / total classifiers
+            confs = votes[np.arange(N), best_cls] / K
+
+            # Convert votes to float for format_results
+            return self._format_results(N, best_cls, confs, votes.astype(np.float32))
+        else:
+            # Fallback to direct scores (One-vs-All or direct classification)
+            best_cls = scores.argmax(axis=1)
+            confs = scores.max(axis=1)
+            return self._format_results(N, best_cls, confs, scores)
 
     def _predict_rff(self, X: np.ndarray) -> list:
-        """Predict using RFF-SVM."""
+        """Predict using RFF-SVM (One-vs-One for CUDA).
+
+        Matches infer.py exactly:
+        - RFF transform: Z = sqrt(2/n_rff) * cos(X @ omega.T + rff_b)
+        - OvO voting: each classifier gives 1 vote to winner (not score accumulation)
+        - Confidence: votes[winner] / n_classifiers
+        """
         # RFF transformation: Z = sqrt(2/D) * cos(X @ Omega.T + phi)
-        D = self.Omega.shape[0]
-        Z = np.sqrt(2.0 / D) * np.cos(X @ self.Omega.T + self.phi)
-        scores = Z @ self.rff_W.T + self.rff_b
-        best_cls = scores.argmax(axis=1)
-        confs = scores.max(axis=1)
-        return self._format_results(len(X), best_cls, confs, scores)
+        n_rff = self.Omega.shape[0]
+        Z = np.dot(X, self.Omega.T) + self.phi  # (N, n_rff)
+        Z = np.sqrt(2.0 / n_rff) * np.cos(Z)
+
+        # Compute raw scores: scores = Z @ W.T + b
+        scores = Z @ self.rff_W.T + self.rff_b  # (N, 6)
+
+        N = X.shape[0]
+        K = self.rff_W.shape[0]  # number of classifiers (6)
+
+        if K == 6 and self.n_classes == 4:
+            # OvO pairs: (pos, neg) - positive class wins if score > 0
+            pairs = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
+            votes = np.zeros((N, self.n_classes), dtype=np.int32)
+
+            for clf_idx, (pos, neg) in enumerate(pairs):
+                # If score > 0, pos wins; else neg wins
+                winners = np.where(scores[:, clf_idx] > 0, pos, neg)
+                for i, w in enumerate(winners):
+                    votes[i, w] += 1
+
+            best_cls = votes.argmax(axis=1)
+            # Confidence = votes for winner / total classifiers
+            confs = votes[np.arange(N), best_cls] / K
+
+            # Convert votes to float for format_results
+            return self._format_results(N, best_cls, confs, votes.astype(np.float32))
+        else:
+            # Fallback to direct scores
+            best_cls = scores.argmax(axis=1)
+            confs = scores.max(axis=1)
+            return self._format_results(N, best_cls, confs, scores)
 
     def _format_results(self, N, best_cls, confs, score_mat) -> list:
         """Format prediction results."""
@@ -849,15 +1067,16 @@ class SVMPredictor:
         return results
 
     def get_info(self) -> dict:
+        is_kernel = "Kernel SVM" in self.model_type
         return {
             "model_id": self.model_id,
             "model_loaded": self.loaded,
             "model_type": self.model_type,
             "n_features": self.n_features,
             "classes": self.label_map,
-            "n_sub_models": len(self.models) if self.model_type == "pyspark_kernel" else self.n_classes,
+            "n_sub_models": len(self.models) if is_kernel else self.n_classes,
             "n_classes": self.n_classes,
-            "gamma": self.gamma if self.model_type == "pyspark_kernel" else None,
+            "gamma": self.gamma if is_kernel else None,
         }
 
 
