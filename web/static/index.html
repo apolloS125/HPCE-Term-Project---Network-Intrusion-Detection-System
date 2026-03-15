@@ -266,6 +266,28 @@
             <!-- Populated by JS -->
         </div>
 
+        <!-- DBSCAN Controls -->
+        <section class="card p-6 border-l-4 border-l-purple-500">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="font-display text-lg font-medium text-white mb-1">Unknown Attack Detection</h3>
+                    <p class="text-[13px] text-dim">Use DBSCAN clustering to identify novel attack patterns in uncertain predictions</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="dbscan-toggle" class="sr-only peer">
+                    <div class="w-14 h-7 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
+                </label>
+            </div>
+            <div id="dbscan-settings" class="hidden space-y-4">
+                <div class="flex items-center gap-4">
+                    <label class="text-xs text-dim uppercase tracking-wider w-40">Confidence Threshold</label>
+                    <input type="range" id="conf-threshold" min="0" max="1" step="0.05" value="0.5" class="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500">
+                    <span id="conf-threshold-value" class="text-sm font-mono text-white w-12 text-right">0.50</span>
+                </div>
+                <p class="text-xs text-dim italic">Samples with confidence below this threshold will be analyzed by DBSCAN for novel attack patterns.</p>
+            </div>
+        </section>
+
         <!-- Input Modes -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 

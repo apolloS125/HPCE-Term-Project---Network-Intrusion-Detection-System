@@ -343,6 +343,7 @@ function renderAnalysisTables(analysis) {
 
 // ══════════════ PREDICT TAB ══════════════
 let selectedFile = null, selectedModel = 'pyspark', predictModels = [];
+let useDBSCAN = false, confThreshold = 0.5;
 
 function setupPredict() {
     loadPredictModels();
@@ -385,6 +386,30 @@ function setupPredict() {
     });
 
     document.getElementById('btn-predict-csv').addEventListener('click', predictCSV);
+
+    // DBSCAN controls
+    const dbscanToggle = document.getElementById('dbscan-toggle');
+    const dbscanSettings = document.getElementById('dbscan-settings');
+    const confThresholdSlider = document.getElementById('conf-threshold');
+    const confThresholdValue = document.getElementById('conf-threshold-value');
+
+    if (dbscanToggle) {
+        dbscanToggle.addEventListener('change', e => {
+            useDBSCAN = e.target.checked;
+            if (dbscanSettings) {
+                dbscanSettings.classList.toggle('hidden', !useDBSCAN);
+            }
+        });
+    }
+
+    if (confThresholdSlider) {
+        confThresholdSlider.addEventListener('input', e => {
+            confThreshold = parseFloat(e.target.value);
+            if (confThresholdValue) {
+                confThresholdValue.textContent = confThreshold.toFixed(2);
+            }
+        });
+    }
 }
 
 function handleFile(file) {
@@ -516,7 +541,13 @@ async function predictManual() {
     }
 
     try {
-        const res = await fetch('/api/predict', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({features: features.map(f=>f.slice(0,52)), model: selectedModel}) });
+        const payload = {
+            features: features.map(f=>f.slice(0,52)),
+            model: selectedModel,
+            use_dbscan: useDBSCAN,
+            conf_threshold: confThreshold
+        };
+        const res = await fetch('/api/predict', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
         const data = await res.json();
         if (!res.ok) { alert(data.detail); return; }
         showPredictResults(data);
@@ -537,36 +568,87 @@ async function predictCSV() {
 function showPredictResults(data) {
     const section = document.getElementById('predict-results');
     section.classList.remove('hidden');
-    document.getElementById('predict-results-header').innerHTML = `Inference Telemetry <span class="bg-indigo-500/20 text-indigo-400 font-mono text-[10px] px-2 py-1 rounded ml-3 border border-indigo-500/30 tracking-widest uppercase">${data.model || selectedModel}</span>`;
+
+    // Add DBSCAN badge if enabled
+    const dbscanBadge = data.dbscan ? `<span class="bg-purple-500/20 text-purple-400 font-mono text-[10px] px-2 py-1 rounded ml-2 border border-purple-500/30 tracking-widest uppercase">🔍 DBSCAN</span>` : '';
+    document.getElementById('predict-results-header').innerHTML = `Inference Telemetry <span class="bg-indigo-500/20 text-indigo-400 font-mono text-[10px] px-2 py-1 rounded ml-3 border border-indigo-500/30 tracking-widest uppercase">${data.model || selectedModel}</span>${dbscanBadge}`;
 
     const counts = {};
     if (data.predictions) data.predictions.forEach(p => { counts[p.predicted_label] = (counts[p.predicted_label]||0)+1; });
     const classCounts = Object.entries(data.summary || counts);
 
-    document.getElementById('predict-summary').innerHTML = classCounts.length > 0 ? classCounts.map(([cls,cnt]) => {
-        const isNormal = cls === 'NormalTraffic';
-        const color = isNormal ? 'text-emerald-400' : 'text-amber-400';
-        const bgRow = isNormal ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20';
-        return `<div class="card px-5 py-4 border ${bgRow} flex flex-col items-center justify-center relative overflow-hidden">
-            <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
-            <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">${cls}</p>
-            <p class="text-3xl font-display font-bold ${color} tracking-tight relative z-10 drop-shadow-md">${cnt}</p>
-        </div>`;
-    }).join('') : `<div class="card p-5 col-span-2 text-center text-dim">No anomalies detected in payload footprint.</div>`;
+    // Add DBSCAN stats cards
+    let summaryHTML = '';
+    if (data.dbscan) {
+        const db = data.dbscan;
+        summaryHTML += `
+            <div class="card px-5 py-4 border bg-purple-500/10 border-purple-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Confident</p>
+                <p class="text-3xl font-display font-bold text-purple-400 tracking-tight relative z-10 drop-shadow-md">${db.n_confident}</p>
+            </div>
+            <div class="card px-5 py-4 border bg-amber-500/10 border-amber-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Novel Patterns</p>
+                <p class="text-3xl font-display font-bold text-amber-400 tracking-tight relative z-10 drop-shadow-md">${db.n_novel}</p>
+            </div>
+            <div class="card px-5 py-4 border bg-red-500/10 border-red-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Unknown</p>
+                <p class="text-3xl font-display font-bold text-red-400 tracking-tight relative z-10 drop-shadow-md">${db.n_unknown}</p>
+            </div>
+            <div class="card px-5 py-4 border bg-cyan-500/10 border-cyan-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Clusters</p>
+                <p class="text-3xl font-display font-bold text-cyan-400 tracking-tight relative z-10 drop-shadow-md">${db.n_clusters}</p>
+            </div>
+        `;
+    } else {
+        summaryHTML = classCounts.length > 0 ? classCounts.map(([cls,cnt]) => {
+            const isNormal = cls === 'NormalTraffic';
+            const color = isNormal ? 'text-emerald-400' : 'text-amber-400';
+            const bgRow = isNormal ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20';
+            return `<div class="card px-5 py-4 border ${bgRow} flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">${cls}</p>
+                <p class="text-3xl font-display font-bold ${color} tracking-tight relative z-10 drop-shadow-md">${cnt}</p>
+            </div>`;
+        }).join('') : `<div class="card p-5 col-span-2 text-center text-dim">No anomalies detected in payload footprint.</div>`;
+    }
+    document.getElementById('predict-summary').innerHTML = summaryHTML;
 
     const show = (data.predictions || []).slice(0, 100);
     document.getElementById('predict-results-tbody').innerHTML = show.map((p,i) => {
         const voteStr = Object.entries(p.votes||{}).map(([c,v])=>`<span class="text-zinc-500">${c}:</span><span class="text-zinc-300 ml-1">${v.toFixed(1)}</span>`).join(' <span class="text-white/10 mx-1">|</span> ');
         const isNormal = p.predicted_label === 'NormalTraffic';
+        const isUnknown = p.predicted_label === 'Unknown';
+        const isNovel = p.is_novel === true;
+        const isUncertain = p.is_uncertain === true;
+
+        let labelClass = '';
+        let labelBadge = '';
+        if (isUnknown) {
+            labelClass = 'bg-red-500/10 text-red-400 border-red-500/20';
+            labelBadge = '❓';
+        } else if (isNovel) {
+            labelClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+            labelBadge = '🆕';
+        } else if (isNormal) {
+            labelClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+        } else {
+            labelClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+        }
+
+        const clusterInfo = (p.cluster_id !== undefined && p.cluster_id !== null && p.cluster_id >= 0) ? ` <span class="text-cyan-400 text-[10px]">C${p.cluster_id}</span>` : '';
+
         return `<tr class="hover:bg-white/[0.04] transition-colors group">
             <td class="px-5 py-3 text-xs font-mono text-zinc-600 group-hover:text-zinc-400">#${(i+1).toString().padStart(3,'0')}</td>
             <td class="px-5 py-3">
-                <span class="inline-flex items-center px-2.5 py-1 rounded border text-xs font-mono font-medium tracking-wide shadow-sm
-                    ${isNormal ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}">
-                    ${p.predicted_label}
+                <span class="inline-flex items-center px-2.5 py-1 rounded border text-xs font-mono font-medium tracking-wide shadow-sm ${labelClass}">
+                    ${labelBadge} ${p.predicted_label}${clusterInfo}
                 </span>
             </td>
-            <td class="px-5 py-3 font-mono text-[13px] ${p.confidence > 0.8 ? 'text-zinc-100' : 'text-zinc-400'}">${p.confidence.toFixed(4)}</td>
+            <td class="px-5 py-3 font-mono text-[13px] ${p.confidence > 0.8 ? 'text-zinc-100' : isUncertain ? 'text-amber-400' : 'text-zinc-400'}">${p.confidence.toFixed(4)}</td>
             <td class="px-5 py-3 text-[11px] font-mono whitespace-nowrap overflow-x-auto">${voteStr}</td>
         </tr>`;
     }).join('');

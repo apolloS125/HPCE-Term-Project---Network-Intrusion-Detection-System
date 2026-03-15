@@ -11,13 +11,15 @@ import re
 import struct
 import pickle
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sklearn.cluster import DBSCAN
+from scipy.spatial.distance import pdist
 
 app = FastAPI(title="NIDS Dashboard API", version="1.0.0")
 
@@ -476,6 +478,108 @@ def get_overview():
     }
 
 
+# ===================== DBSCAN Hybrid Classifier =====================
+
+def apply_dbscan_hybrid(results: list, predictor, X: np.ndarray, conf_threshold: float = 0.5) -> Tuple[list, dict]:
+    """
+    Apply DBSCAN to uncertain predictions to detect novel attacks.
+
+    Returns: (updated_results, dbscan_stats)
+    """
+    # Separate confident vs uncertain samples
+    confident_idx = []
+    uncertain_idx = []
+
+    for i, pred in enumerate(results):
+        if pred["confidence"] >= conf_threshold:
+            confident_idx.append(i)
+        else:
+            uncertain_idx.append(i)
+
+    n_confident = len(confident_idx)
+    n_uncertain = len(uncertain_idx)
+
+    stats = {
+        "n_confident": n_confident,
+        "n_uncertain": n_uncertain,
+        "n_novel": 0,
+        "n_unknown": 0,
+        "n_clusters": 0,
+        "eps": 0.0,
+        "conf_threshold": conf_threshold
+    }
+
+    # If no uncertain samples, return as-is
+    if n_uncertain == 0:
+        return results, stats
+
+    # Build score matrix for uncertain samples
+    # For clustering, we use the raw vote/score vectors from SVM
+    uncertain_scores = []
+    for i in uncertain_idx:
+        # Get vote scores for all classes
+        votes = results[i].get("votes", {})
+        # Convert to numeric array (order by class ID)
+        score_vec = [votes.get(label, 0.0) for label in sorted(votes.keys())]
+        uncertain_scores.append(score_vec)
+
+    X_uncertain = np.array(uncertain_scores, dtype=np.float64)
+
+    # Auto-tune eps using median of pairwise distances
+    if n_uncertain > 1:
+        from scipy.spatial.distance import pdist
+        pairwise_dists = pdist(X_uncertain, metric='euclidean')
+        eps = float(np.percentile(pairwise_dists, 30))  # Use 30th percentile as eps
+    else:
+        eps = 0.5
+
+    stats["eps"] = eps
+
+    # Apply DBSCAN (min_samples=3 for small batches, 8 for larger)
+    min_samples = 3 if n_uncertain < 20 else 8
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+
+    try:
+        cluster_labels = dbscan.fit_predict(X_uncertain)
+    except:
+        # Fallback if DBSCAN fails
+        return results, stats
+
+    # Update results based on clustering
+    n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
+    n_noise = np.sum(cluster_labels == -1)
+
+    stats["n_clusters"] = n_clusters
+    stats["n_unknown"] = int(n_noise)
+    stats["n_novel"] = n_uncertain - n_noise
+
+    for local_idx, cluster_id in enumerate(cluster_labels):
+        global_idx = uncertain_idx[local_idx]
+
+        if cluster_id == -1:
+            # Noise point - truly unknown
+            results[global_idx]["predicted_label"] = "Unknown"
+            results[global_idx]["cluster_id"] = -1
+            results[global_idx]["is_uncertain"] = True
+            results[global_idx]["is_novel"] = False
+        else:
+            # Part of a cluster - novel attack pattern
+            results[global_idx]["cluster_id"] = int(cluster_id)
+            results[global_idx]["is_uncertain"] = True
+            results[global_idx]["is_novel"] = True
+            # Keep original prediction but mark as uncertain/novel
+            orig_label = results[global_idx]["predicted_label"]
+            results[global_idx]["predicted_label"] = f"{orig_label} (Novel Pattern)"
+
+    # Mark confident predictions
+    for i in confident_idx:
+        results[i]["is_uncertain"] = False
+        results[i]["is_novel"] = False
+        results[i]["cluster_id"] = None
+
+    return results, stats
+
+
 # ===================== Multi-Model SVM Predictor =====================
 
 # Label maps
@@ -750,7 +854,7 @@ def get_predictor(model_id: str) -> SVMPredictor:
 
 @app.post("/api/predict")
 async def predict_samples(data: dict):
-    """Predict using selected model."""
+    """Predict using selected model with optional DBSCAN for uncertain samples."""
     model_id = data.get("model", "pyspark")
     if model_id not in ["pyspark", "cuda", "mpi", "openmp", "thread"]:
         raise HTTPException(status_code=400, detail=f"Invalid model: {model_id}")
@@ -763,6 +867,10 @@ async def predict_samples(data: dict):
     if not features:
         raise HTTPException(status_code=400, detail="No features provided")
 
+    # DBSCAN options
+    use_dbscan = data.get("use_dbscan", False)
+    conf_threshold = data.get("conf_threshold", 0.5)
+
     try:
         X = np.array(features, dtype=np.float64)
         if X.ndim == 1:
@@ -771,13 +879,24 @@ async def predict_samples(data: dict):
             raise HTTPException(status_code=400, detail=f"Expected 52 features, got {X.shape[1]}")
 
         results = predictor.predict(X)
+
+        # Apply DBSCAN if requested
+        dbscan_stats = None
+        if use_dbscan:
+            results, dbscan_stats = apply_dbscan_hybrid(results, predictor, X, conf_threshold)
+
         model_info = get_all_models().get(model_id, {})
-        return {
+        response = {
             "predictions": results,
             "n_samples": len(results),
             "model": model_info.get("name", model_id),
             "model_id": model_id,
         }
+
+        if dbscan_stats:
+            response["dbscan"] = dbscan_stats
+
+        return response
     except HTTPException:
         raise
     except Exception as e:
