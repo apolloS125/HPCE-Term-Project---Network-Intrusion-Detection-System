@@ -1,0 +1,2 @@
+n_ranks,n_train,epochs_run,val_acc,val_f1,best_f1,loss_avg,train_time_ms,train_gflops
+1,588717,200,0.937177,0.931417,0.933781,0.267428,2014.76,0.0317147

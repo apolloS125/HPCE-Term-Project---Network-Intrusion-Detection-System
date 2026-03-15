@@ -1,0 +1,85 @@
+[01:14:41] ════════════════════════════════════════════════════
+[01:14:41] PHASE 1 — SVM INFERENCE  (loading model.bin)
+[01:14:41] ════════════════════════════════════════════════════
+[01:14:41] Loading SVM model: model.bin
+[01:14:41] Model loaded: K=6 F=52
+[01:14:41] Loading test data: data/processed/test_data.csv
+[01:14:44] N_test=765495
+[01:14:44] ─── SVM inference complete for all 765495 test samples.
+[01:14:44] Phase 1 (SVM inference) time: 3.458s
+
+  SVM-only per-class metrics (trained classes, all non-holdout):
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.5303    0.9974    0.6925     38404
+  DoS                 0.8702    0.9233    0.8960     58124
+  NormalTraffic       0.9969    0.9154    0.9544    628518
+  PortScan            0.6514    0.9870    0.7848     27208
+  macro_F1                                    0.8319  (SVM-only)
+[01:14:44] SVM-only predictions -> svm_predictions.csv
+
+[01:14:44] ════════════════════════════════════════════════════
+[01:14:44] PHASE 2 — DBSCAN CLUSTERING
+[01:14:44] ════════════════════════════════════════════════════
+  Holdout samples  (anchors):         13241
+  Confident samples (SVM final):       749343
+  Uncertain: Normal-predicted (direct): 86  (SVM argmax=Normal, skip DBSCAN)
+  Uncertain: attack-predicted (DBSCAN): 2825 (capped at 110000; 0 overflow -> PRED_NOVEL)
+  DBSCAN pool total:                   16066
+  Normal centroid (n=628518): [-0.389, -4.885, -1.864, -4.241, -0.610, 4.478]
+[01:14:44]   DBSCAN pass 1: counting neighbours (n=16066, eps=1.00000) ...
+[01:14:45]   DBSCAN pass 2: filling adjacency (total edges=37010034, avg=2303.6) ...
+[01:14:46]   DBSCAN done: clusters=42  noise=713 (4.4%)
+  Cluster labelling: 14 holdout-voted, 0 reclassified Normal, 28 centroid-predicted attack
+[01:14:46] DBSCAN model saved -> dbscan_model.bin  (42 clusters, 6-D)
+
+[01:14:46] ════════════════════════════════════════════════════
+[01:14:46] PHASE 3 — HYBRID COMBINATION  (SVM->DBSCAN fallback)
+[01:14:46] ════════════════════════════════════════════════════
+[01:14:46] Phase 2 (DBSCAN clustering) time: 1.713s
+  Logic: conf >= 0.80 → SVM argmax;
+         conf < 0.80 AND pred=Normal → Normal direct (no DBSCAN);
+         conf < 0.80 AND pred=attack → DBSCAN cluster;
+         holdout class → DBSCAN (novel detection).
+
+[01:14:46] ── Evaluation ──────────────────────────────────────
+
+  Hybrid per-class metrics (trained classes, confident+DBSCAN):
+  Class                 Prec    Recall        F1   Support
+  DDoS                0.5332    0.9974    0.6949     38404
+  DoS                 0.8697    0.9247    0.8964     57502
+  NormalTraffic       0.9969    0.9158    0.9546    628228
+  PortScan            0.6514    0.9870    0.7848     27208
+  macro_F1                                    0.8327  (hybrid)
+
+  Holdout class detection via DBSCAN:
+  Class                Total   Correct     Noise
+  Bots                  1948      1711       103
+  BruteForce            9150      9131        18
+  WebAttacks            2143      1901        27
+  Holdout detection rate: 0.9624  (12743 / 13241)
+
+  Uncertain pool breakdown (2911 total uncertain):
+  Direct Normal (SVM argmax=Normal, skip DBSCAN)  86
+  Attack-class uncertain sent to DBSCAN       2825
+    -> Reclassified Normal (near-Normal cluster)  0
+    -> Matched holdout pattern (Bots/BF/WebAtk)  912
+    -> Centroid-predicted attack class        1348
+    -> SVM fallback (DBSCAN noise -1)         565
+
+[01:14:46] Hybrid predictions    -> hybrid_predictions.csv
+[01:14:46] Phase 3 (hybrid combination) time: 0.067s
+[01:14:46] ── Performance Summary ─────────────────────────
+  Accuracy:         0.9233
+  Predict   (ms):   3457.9
+  DBSCAN    (ms):   1713.0
+  Total     (ms):   5300.7
+  SVM GFLOPS:       0.138
+  DBSCAN GFLOPS:    3.616
+[01:14:46] Summary log           -> hybrid_log.csv
+[01:14:46] Results CSV           -> results.csv
+[01:14:46] Done.  Output files:
+       SVM-only preds  : svm_predictions.csv
+       DBSCAN model    : dbscan_model.bin
+       Hybrid preds    : hybrid_predictions.csv
+       Metrics log     : hybrid_log.csv
+       Results CSV     : results.csv
