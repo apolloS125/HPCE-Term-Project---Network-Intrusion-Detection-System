@@ -293,17 +293,30 @@
             <div class="flex items-center justify-between mb-4">
                 <div>
                     <h3 class="font-medium text-white mb-1">Hybrid Anomaly Detection (DBSCAN)</h3>
-                    <p class="text-xs text-dim">Cluster uncertain samples to isolate unlabelled attack logic.</p>
+                    <p class="text-xs text-dim">Cluster uncertain samples to detect holdout attacks: <span class="text-amber-400 font-medium">Bots, BruteForce, WebAttacks</span></p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="dbscan-toggle" class="sr-only peer">
+                    <input type="checkbox" id="dbscan-toggle" class="sr-only peer" checked>
                     <div class="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
             </div>
-            <div id="dbscan-settings" class="hidden space-y-4">
+            <div id="dbscan-settings" class="space-y-4">
                 <div class="flex items-center gap-4">
+                    <label class="text-xs text-dim uppercase tracking-wider w-40">Mode</label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="dbscan-mode" value="hybrid" checked class="accent-blue-500">
+                            <span class="text-xs text-white">Hybrid (SVM + DBSCAN)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="dbscan-mode" value="only" class="accent-amber-500">
+                            <span class="text-xs text-amber-400">DBSCAN Only</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4" id="conf-threshold-container">
                     <label class="text-xs text-dim uppercase tracking-wider w-40">Confidence Threshold</label>
-                    <input type="range" id="conf-threshold" min="0" max="1" step="0.05" value="0.5" class="flex-1 h-2 bg-[#27272a] rounded-lg appearance-none cursor-pointer accent-blue-500">
+                    <input type="range" id="conf-threshold" min="0" max="3" step="0.05" value="1.0" class="flex-1 h-2 bg-[#27272a] rounded-lg appearance-none cursor-pointer accent-blue-500">
                     <span id="conf-threshold-value" class="text-sm font-mono text-white w-12 text-right">0.50</span>
                 </div>
             </div>
@@ -388,6 +401,6 @@
         </div>
     </footer>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=5"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
  * Tabs: Dashboard | Analysis | Predict
  */
 
-const COLORS = { 
+const COLORS = {
     indigo: '#2563eb', // Blue
     violet: '#0ea5e9', // Sky
     cyan: '#6366f1', // Indigo
@@ -13,17 +13,17 @@ const COLORS = {
 };
 const PALETTE = [COLORS.indigo, COLORS.violet, COLORS.cyan, COLORS.green, COLORS.amber, COLORS.fuchsia];
 const MODEL_ORDER = ['cuda', 'mpi', 'openmp', 'thread', 'pyspark'];
-const MODEL_ICONS = { cuda:'⚡', mpi:'🔗', openmp:'🧵', thread:'🪡', pyspark:'🔥' };
-const LABEL_MAP = {0:'DDoS', 1:'DoS', 2:'NormalTraffic', 3:'PortScan'};
+const MODEL_ICONS = { cuda: '⚡', mpi: '🔗', openmp: '🧵', thread: '🪡', pyspark: '🔥' };
+const LABEL_MAP = { 0: 'DDoS', 1: 'DoS', 2: 'NormalTraffic', 3: 'PortScan' };
 
 let models = {};
 const charts = {};
 
 // ── Bootstrap ──
-document.addEventListener('DOMContentLoaded', () => { 
+document.addEventListener('DOMContentLoaded', () => {
     Chart.defaults.font.family = 'Inter, sans-serif';
     Chart.defaults.color = '#71717a';
-    setupTabs(); 
+    setupTabs();
     setupLanding();
     setupScrollAnimations();
 });
@@ -44,17 +44,17 @@ function setupLanding() {
         // 1. Show loading state
         btn.classList.add('opacity-0', 'pointer-events-none');
         loading.classList.remove('opacity-0');
-        
+
         // 2. Fetch data in the background
         const success = await init();
-        
+
         // 3. Small delay for effect
         setTimeout(() => {
             content.classList.add('landing-zoom-out');
             setTimeout(() => {
                 landing.classList.add('hide-landing');
                 body.classList.remove('overflow-hidden'); // Allow scrolling
-                
+
                 // Remove landing from DOM after transition (1s) to save resources
                 setTimeout(() => landing.remove(), 1000);
             }, 300);
@@ -70,8 +70,8 @@ function setupScrollAnimations() {
             }
         });
     }, {
-        threshold: 0.1, 
-        rootMargin: "0px 0px -50px 0px" 
+        threshold: 0.1,
+        rootMargin: "0px 0px -50px 0px"
     });
 
     document.querySelectorAll('.scroll-animate').forEach(el => observer.observe(el));
@@ -98,9 +98,9 @@ async function init() {
         loadAnalysis();
         setupPredict();
         return true;
-    } catch (e) { 
-        console.error(e); 
-        setStatus(false); 
+    } catch (e) {
+        console.error(e);
+        setStatus(false);
         return false;
     }
 }
@@ -125,10 +125,10 @@ function renderDashboard(ov) { renderKPI(ov); renderModelCards(); renderTable();
 
 function renderKPI(ov) {
     const kpis = [
-        { label:'Peak Accuracy', value:ov.best_model.accuracy.toFixed(1)+'%', sub:ov.best_model.name },
-        { label:'Cluster Avg Accuracy', value:ov.avg_accuracy.toFixed(1)+'%', sub:`Across ${ov.total_models} models` },
-        { label:'Lowest Latency', value:fmt(ov.fastest_model.total_ms), sub:ov.fastest_model.name },
-        { label:'Max Throughput', value:(ov.highest_gflops.gflops||0).toFixed(1) + ' GF', sub:ov.highest_gflops.name },
+        { label: 'Peak Accuracy', value: ov.best_model.accuracy.toFixed(1) + '%', sub: ov.best_model.name },
+        { label: 'Cluster Avg Accuracy', value: ov.avg_accuracy.toFixed(1) + '%', sub: `Across ${ov.total_models} models` },
+        { label: 'Lowest Latency', value: fmt(ov.fastest_model.total_ms), sub: ov.fastest_model.name },
+        { label: 'Max Throughput', value: (ov.highest_gflops.gflops || 0).toFixed(1) + ' GF', sub: ov.highest_gflops.name },
     ];
     document.getElementById('kpi-strip').innerHTML = kpis.map(k => `
         <div class="card p-6 flex flex-col justify-center relative overflow-hidden group hoverable text-left">
@@ -139,11 +139,11 @@ function renderKPI(ov) {
 }
 
 function renderModelCards() {
-    document.getElementById('model-cards').innerHTML = ordered().map(([id,m],i) => `
+    document.getElementById('model-cards').innerHTML = ordered().map(([id, m], i) => `
         <div class="card p-5 hoverable cursor-default flex flex-col">
             <div class="flex items-center gap-3 mb-4">
                 <div class="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-lg shadow-inner">
-                    ${MODEL_ICONS[id]||'📊'}
+                    ${MODEL_ICONS[id] || '📊'}
                 </div>
                 <span class="text-[15px] font-display font-semibold text-white tracking-wide">${m.name}</span>
             </div>
@@ -164,21 +164,21 @@ function renderModelCards() {
                 </div>
                 <div class="flex justify-between items-center text-xs">
                     <span class="text-dim">GFLOPS</span>
-                    <span class="font-mono text-zinc-300">${(m.gflops||0).toFixed(1)}</span>
+                    <span class="font-mono text-zinc-300">${(m.gflops || 0).toFixed(1)}</span>
                 </div>
             </div>
         </div>`).join('');
 }
 
 function renderTable() {
-    document.getElementById('perf-tbody').innerHTML = ordered().map(([id,m],i) => `
+    document.getElementById('perf-tbody').innerHTML = ordered().map(([id, m], i) => `
         <tr class="border-b border-white/5 hover:bg-white/[0.03] transition-colors group">
             <td class="px-5 py-4">
                 <div class="flex items-center gap-3">
                     <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_${PALETTE[i]}]" style="background:${PALETTE[i]}"></div>
                     <div class="flex flex-col">
                         <span class="font-display font-medium text-zinc-100 group-hover:text-white transition-colors">${m.name}</span>
-                        <span class="text-[10px] text-dim">${m.technique||''}</span>
+                        <span class="text-[10px] text-dim">${m.technique || ''}</span>
                     </div>
                 </div>
             </td>
@@ -187,7 +187,7 @@ function renderTable() {
             <td class="px-5 py-4 font-mono text-[13px] text-zinc-400">${fmt(m.predict_ms)}</td>
             <td class="px-5 py-4 font-mono text-[13px] text-zinc-400">${fmt(m.dbscan_ms)}</td>
             <td class="px-5 py-4 font-mono text-[13px] text-zinc-300 font-medium">${fmt(m.total_ms)}</td>
-            <td class="px-5 py-4 font-mono text-[13px] text-zinc-300">${(m.gflops||0).toFixed(2)}</td>
+            <td class="px-5 py-4 font-mono text-[13px] text-zinc-300">${(m.gflops || 0).toFixed(2)}</td>
         </tr>`).join('');
 }
 
@@ -199,16 +199,16 @@ function createGradient(ctx, color) {
 }
 
 const chartDef = {
-    responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
-    scales:{ 
-        x:{ticks:{color:'#71717a',font:{family:'Outfit',size:12}},grid:{display:false},border:{display:false}}, 
-        y:{ticks:{color:'#71717a',font:{family:'JetBrains Mono',size:11}},grid:{color:'rgba(255,255,255,0.05)',drawBorder:false},border:{display:false}} 
+    responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+    scales: {
+        x: { ticks: { color: '#71717a', font: { family: 'Outfit', size: 12 } }, grid: { display: false }, border: { display: false } },
+        y: { ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false }, border: { display: false } }
     }
 };
 
 function renderCharts() {
-    const names = ordered().map(([,m])=>m.name);
-    
+    const names = ordered().map(([, m]) => m.name);
+
     // Custom logic to add gradients once canvas ctx is available
     const mkGrad = id => {
         const ctx = document.getElementById(id).getContext('2d');
@@ -216,46 +216,48 @@ function renderCharts() {
     };
 
     setTimeout(() => {
-        mk('chart-acc','bar',names,[{data:ordered().map(([,m])=>m.accuracy),backgroundColor:mkGrad('chart-acc'),borderRadius:6,borderWidth:1,borderColor:PALETTE,barThickness:36}],
-            {...chartDef,scales:{...chartDef.scales,y:{...chartDef.scales.y,min:Math.max(0,Math.min(...ordered().map(([,m])=>m.accuracy))-3),max:100}}});
-        
-        mk('chart-time','bar',names,[{data:ordered().map(([,m])=>m.total_ms/1000),backgroundColor:mkGrad('chart-time'),borderRadius:6,borderWidth:1,borderColor:PALETTE,barThickness:36}],
-            {...chartDef,scales:{...chartDef.scales,y:{...chartDef.scales.y,ticks:{...chartDef.scales.y.ticks,callback:v=>v+'s'}}}});
-            
-        mk('chart-pipeline','bar',names,[
-            {label:'Train',data:ordered().map(([,m])=>m.train_ms/1000),backgroundColor:COLORS.indigo+'99',borderRadius:4,borderWidth:1,borderColor:COLORS.indigo},
-            {label:'Predict',data:ordered().map(([,m])=>m.predict_ms/1000),backgroundColor:COLORS.violet+'99',borderRadius:4,borderWidth:1,borderColor:COLORS.violet},
-            {label:'DBSCAN',data:ordered().map(([,m])=>m.dbscan_ms/1000),backgroundColor:COLORS.cyan+'99',borderRadius:4,borderWidth:1,borderColor:COLORS.cyan},
-        ],{...chartDef,plugins:{legend:{labels:{color:'#a1a1aa',font:{family:'Outfit',size:11},usePointStyle:true,pointStyleWidth:8,padding:20}}},
-            scales:{x:{stacked:true,...chartDef.scales.x},y:{stacked:true,...chartDef.scales.y,ticks:{...chartDef.scales.y.ticks,callback:v=>v+'s'}}}});
-            
-        mk('chart-gflops','bar',names,[{data:ordered().map(([,m])=>m.gflops||0),backgroundColor:mkGrad('chart-gflops'),borderRadius:6,borderWidth:1,borderColor:PALETTE,barThickness:32}],
-            {...chartDef,indexAxis:'y',scales:{x:{...chartDef.scales.y},y:{ticks:{color:'#a1a1aa',font:{family:'Outfit',size:12,weight:500}},grid:{display:false}}}});
+        mk('chart-acc', 'bar', names, [{ data: ordered().map(([, m]) => m.accuracy), backgroundColor: mkGrad('chart-acc'), borderRadius: 6, borderWidth: 1, borderColor: PALETTE, barThickness: 36 }],
+            { ...chartDef, scales: { ...chartDef.scales, y: { ...chartDef.scales.y, min: Math.max(0, Math.min(...ordered().map(([, m]) => m.accuracy)) - 3), max: 100 } } });
+
+        mk('chart-time', 'bar', names, [{ data: ordered().map(([, m]) => m.total_ms / 1000), backgroundColor: mkGrad('chart-time'), borderRadius: 6, borderWidth: 1, borderColor: PALETTE, barThickness: 36 }],
+            { ...chartDef, scales: { ...chartDef.scales, y: { ...chartDef.scales.y, ticks: { ...chartDef.scales.y.ticks, callback: v => v + 's' } } } });
+
+        mk('chart-pipeline', 'bar', names, [
+            { label: 'Train', data: ordered().map(([, m]) => m.train_ms / 1000), backgroundColor: COLORS.indigo + '99', borderRadius: 4, borderWidth: 1, borderColor: COLORS.indigo },
+            { label: 'Predict', data: ordered().map(([, m]) => m.predict_ms / 1000), backgroundColor: COLORS.violet + '99', borderRadius: 4, borderWidth: 1, borderColor: COLORS.violet },
+            { label: 'DBSCAN', data: ordered().map(([, m]) => m.dbscan_ms / 1000), backgroundColor: COLORS.cyan + '99', borderRadius: 4, borderWidth: 1, borderColor: COLORS.cyan },
+        ], {
+            ...chartDef, plugins: { legend: { labels: { color: '#a1a1aa', font: { family: 'Outfit', size: 11 }, usePointStyle: true, pointStyleWidth: 8, padding: 20 } } },
+            scales: { x: { stacked: true, ...chartDef.scales.x }, y: { stacked: true, ...chartDef.scales.y, ticks: { ...chartDef.scales.y.ticks, callback: v => v + 's' } } }
+        });
+
+        mk('chart-gflops', 'bar', names, [{ data: ordered().map(([, m]) => m.gflops || 0), backgroundColor: mkGrad('chart-gflops'), borderRadius: 6, borderWidth: 1, borderColor: PALETTE, barThickness: 32 }],
+            { ...chartDef, indexAxis: 'y', scales: { x: { ...chartDef.scales.y }, y: { ticks: { color: '#a1a1aa', font: { family: 'Outfit', size: 12, weight: 500 } }, grid: { display: false } } } });
     }, 50);
 }
 
 function renderDetails() {
-    document.getElementById('model-details').innerHTML = ordered().map(([id,m],i) => `
+    document.getElementById('model-details').innerHTML = ordered().map(([id, m], i) => `
         <details class="card group transition-all duration-300">
             <summary class="px-6 py-4 cursor-pointer flex items-center justify-between hover:bg-white/[0.02] transition-colors rounded-xl list-none focus:outline-none focus:ring-1 focus:ring-indigo-500/50">
                 <div class="flex items-center gap-4">
                     <div class="w-3 h-3 rounded-full shadow-[0_0_8px_${PALETTE[i]}]" style="background:${PALETTE[i]}"></div>
                     <span class="font-display text-base font-semibold text-white tracking-wide">${m.name}</span>
-                    <span class="text-[11px] font-mono text-zinc-400 bg-white/5 px-2 py-0.5 rounded hidden sm:inline-block border border-white/5">${m.technique||''}</span>
+                    <span class="text-[11px] font-mono text-zinc-400 bg-white/5 px-2 py-0.5 rounded hidden sm:inline-block border border-white/5">${m.technique || ''}</span>
                 </div>
                 <svg class="w-5 h-5 text-zinc-500 transition-transform duration-300 group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
             </summary>
             <div class="px-6 pb-6 pt-3 border-t border-white/5 bg-black/20">
-                <p class="text-sm text-dim mb-6 leading-relaxed">${m.description||''}</p>
+                <p class="text-sm text-dim mb-6 leading-relaxed">${m.description || ''}</p>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-2 text-[13px]">
-                    ${dr('Architecture',m.parallelism||'-')}${dr('Hardware',m.hardware||'-')}
-                    ${dr('Training Corpus',num(m.n_train))}${dr('Test Corpus',num(m.n_test))}
-                    ${dr('Feature Space',m.n_features)}${dr('Output Classes',m.n_classes)}
-                    ${dr('SVM Training Time',fmt(m.train_ms))}${dr('SVM Inference Time',fmt(m.predict_ms))}
-                    ${dr('DBSCAN Refinement',fmt(m.dbscan_ms))}${dr('Total Execution Time',fmt(m.total_ms))}
-                    ${dr('Computational Yield',(m.gflops||0).toFixed(2) + ' GFLOPS', true)}${dr('Total FLOP Count',num(m.flops||0))}
-                    ${m.confident?dr('Confident / Uncertain SVs',`<span class="text-emerald-400">${num(m.confident)}</span> / <span class="text-amber-400">${num(m.uncertain)}</span>`):''}
-                    ${m.dbscan_clusters?dr('DBSCAN Clusters / Noise',`<span class="text-cyan-400">${m.dbscan_clusters}</span> / <span class="text-fuchsia-400">${m.dbscan_noise}</span>`):''}
+                    ${dr('Architecture', m.parallelism || '-')}${dr('Hardware', m.hardware || '-')}
+                    ${dr('Training Corpus', num(m.n_train))}${dr('Test Corpus', num(m.n_test))}
+                    ${dr('Feature Space', m.n_features)}${dr('Output Classes', m.n_classes)}
+                    ${dr('SVM Training Time', fmt(m.train_ms))}${dr('SVM Inference Time', fmt(m.predict_ms))}
+                    ${dr('DBSCAN Refinement', fmt(m.dbscan_ms))}${dr('Total Execution Time', fmt(m.total_ms))}
+                    ${dr('Computational Yield', (m.gflops || 0).toFixed(2) + ' GFLOPS', true)}${dr('Total FLOP Count', num(m.flops || 0))}
+                    ${m.confident ? dr('Confident / Uncertain SVs', `<span class="text-emerald-400">${num(m.confident)}</span> / <span class="text-amber-400">${num(m.uncertain)}</span>`) : ''}
+                    ${m.dbscan_clusters ? dr('DBSCAN Clusters / Noise', `<span class="text-cyan-400">${m.dbscan_clusters}</span> / <span class="text-fuchsia-400">${m.dbscan_noise}</span>`) : ''}
                 </div>
             </div>
         </details>`).join('');
@@ -267,7 +269,7 @@ async function loadAnalysis() {
     try {
         const analysis = await api('/api/analysis');
         renderAnalysisTables(analysis);
-    } catch(e) {
+    } catch (e) {
         console.error('Analysis load failed:', e);
         document.getElementById('analysis-tables').innerHTML = '<p class="text-sm text-dim">Granular metrics stream disrupted.</p>';
     }
@@ -282,7 +284,7 @@ function renderComparisons() {
     const ompTime = omp.total_ms || 0, thrTime = thr.total_ms || 0;
     const sharedWinner = thrGflops > ompGflops ? 'C++ Thread' : 'OpenMP';
     const sharedSpeedup = ompTime && thrTime ? (Math.max(ompTime, thrTime) / Math.min(ompTime, thrTime)).toFixed(2) : '—';
-    
+
     document.getElementById('cmp-shared-metrics').innerHTML = `
         ${cmpRow('OpenMP Throughput', ompGflops.toFixed(2) + ' GF')}
         ${cmpRow('C++ Thread Throughput', thrGflops.toFixed(2) + ' GF')}
@@ -296,7 +298,7 @@ function renderComparisons() {
     const mpiAcc = mpi.accuracy || 0, pysAcc = pys.accuracy || 0;
     const distWinner = pysTime && mpiTime ? (pysTime < mpiTime ? 'PySpark' : 'MPI') : '—';
     const distSpeedup = mpiTime && pysTime ? (Math.max(mpiTime, pysTime) / Math.min(mpiTime, pysTime)).toFixed(2) : '—';
-    
+
     document.getElementById('cmp-dist-metrics').innerHTML = `
         ${cmpRow('MPI Latency', fmt(mpiTime))}
         ${cmpRow('PySpark Latency', fmt(pysTime))}
@@ -309,7 +311,7 @@ function renderComparisons() {
     const cudaGflops = cuda.gflops || 0, cudaTime = cuda.total_ms || 0;
     const cudaAcc = cuda.accuracy || 0, ompAcc = omp.accuracy || 0;
     const gpuWinner = cudaGflops > ompGflops ? 'CUDA' : 'OpenMP';
-    
+
     document.getElementById('cmp-gpu-metrics').innerHTML = `
         ${cmpRow('GPU (CUDA) Throughput', cudaGflops.toFixed(2) + ' GF')}
         ${cmpRow('CPU (OpenMP) Throughput', ompGflops.toFixed(2) + ' GF')}
@@ -320,11 +322,11 @@ function renderComparisons() {
     `;
 
     const accDiff = (thrAcc => cudaAcc - thrAcc)(thr.accuracy || 0);
-    const kernelWinner = cudaAcc > (thr.accuracy||0) ? 'RFF (CUDA)' : 'Exact (Thread)';
-    
+    const kernelWinner = cudaAcc > (thr.accuracy || 0) ? 'RFF (CUDA)' : 'Exact (Thread)';
+
     document.getElementById('cmp-kernel-metrics').innerHTML = `
         ${cmpRow('RFF Approx Accuracy', cudaAcc.toFixed(2) + '%')}
-        ${cmpRow('Exact Kernel Accuracy', (thr.accuracy||0).toFixed(2) + '%')}
+        ${cmpRow('Exact Kernel Accuracy', (thr.accuracy || 0).toFixed(2) + '%')}
         ${cmpRow('RFF Evaluation Time', fmt(cudaTime))}
         ${cmpRow('Exact Evaluation Time', fmt(thrTime))}
         ${cmpRow('Precision Deviation', (accDiff >= 0 ? '+' : '') + accDiff.toFixed(2) + '%', true, accDiff >= 0 ? COLORS.green : COLORS.amber)}
@@ -332,17 +334,17 @@ function renderComparisons() {
     `;
 
     setTimeout(() => {
-        mk('chart-cmp-shared','bar',['OpenMP','Thread'],[{label:'GFLOPS',data:[ompGflops, thrGflops],backgroundColor:[COLORS.indigo+'cc',COLORS.indigo],borderRadius:4,barThickness:36}],{...chartDef,indexAxis:'y'});
-        mk('chart-cmp-dist','bar',['MPI','PySpark'],[{label:'Time (s)',data:[mpiTime/1000, pysTime/1000],backgroundColor:[COLORS.violet+'cc',COLORS.violet],borderRadius:4,barThickness:36}],{...chartDef,indexAxis:'y'});
-        mk('chart-cmp-gpu','bar',['CUDA','OpenMP'],[{label:'GFLOPS',data:[cudaGflops, ompGflops],backgroundColor:[COLORS.cyan,COLORS.cyan+'66'],borderRadius:4,barThickness:36}],{...chartDef,indexAxis:'y'});
-        mk('chart-cmp-kernel','bar',['RFF','Exact'],[{label:'Accuracy',data:[cudaAcc, thr.accuracy||0],backgroundColor:[COLORS.amber,COLORS.amber+'66'],borderRadius:4,barThickness:36}],{...chartDef,indexAxis:'y',scales:{x:{...chartDef.scales.y,min:80,max:100}}});
+        mk('chart-cmp-shared', 'bar', ['OpenMP', 'Thread'], [{ label: 'GFLOPS', data: [ompGflops, thrGflops], backgroundColor: [COLORS.indigo + 'cc', COLORS.indigo], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y' });
+        mk('chart-cmp-dist', 'bar', ['MPI', 'PySpark'], [{ label: 'Time (s)', data: [mpiTime / 1000, pysTime / 1000], backgroundColor: [COLORS.violet + 'cc', COLORS.violet], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y' });
+        mk('chart-cmp-gpu', 'bar', ['CUDA', 'OpenMP'], [{ label: 'GFLOPS', data: [cudaGflops, ompGflops], backgroundColor: [COLORS.cyan, COLORS.cyan + '66'], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y' });
+        mk('chart-cmp-kernel', 'bar', ['RFF', 'Exact'], [{ label: 'Accuracy', data: [cudaAcc, thr.accuracy || 0], backgroundColor: [COLORS.amber, COLORS.amber + '66'], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y', scales: { x: { ...chartDef.scales.y, min: 80, max: 100 } } });
     }, 50);
 
     const summaryData = [
-        {cmp:'Shared-memory', models:'OpenMP vs Thread', winner:sharedWinner, color:'text-indigo-400 bg-indigo-500/10 border border-indigo-500/20', finding:`${sharedWinner} achieves ${sharedSpeedup}x speedup relative to counterpart.`},
-        {cmp:'Distributed', models:'MPI vs PySpark', winner:distWinner, color:'text-violet-400 bg-violet-500/10 border border-violet-500/20', finding:`${distWinner} demonstrates ${distSpeedup}x superior scalability.`},
-        {cmp:'Hardware Topology', models:'CUDA vs OpenMP', winner:gpuWinner, color:'text-cyan-400 bg-cyan-500/10 border border-cyan-500/20', finding:`${gpuWinner} delivers orders of magnitude higher FLOPS.`},
-        {cmp:'Kernel Strategy', models:'RFF vs Exact', winner:kernelWinner, color:'text-amber-400 bg-amber-500/10 border border-amber-500/20', finding:`${kernelWinner} provides better accuracy (${accDiff>=0?'+':''}${accDiff.toFixed(2)}% margin).`},
+        { cmp: 'Shared-memory', models: 'OpenMP vs Thread', winner: sharedWinner, color: 'text-indigo-400 bg-indigo-500/10 border border-indigo-500/20', finding: `${sharedWinner} achieves ${sharedSpeedup}x speedup relative to counterpart.` },
+        { cmp: 'Distributed', models: 'MPI vs PySpark', winner: distWinner, color: 'text-violet-400 bg-violet-500/10 border border-violet-500/20', finding: `${distWinner} demonstrates ${distSpeedup}x superior scalability.` },
+        { cmp: 'Hardware Topology', models: 'CUDA vs OpenMP', winner: gpuWinner, color: 'text-cyan-400 bg-cyan-500/10 border border-cyan-500/20', finding: `${gpuWinner} delivers orders of magnitude higher FLOPS.` },
+        { cmp: 'Kernel Strategy', models: 'RFF vs Exact', winner: kernelWinner, color: 'text-amber-400 bg-amber-500/10 border border-amber-500/20', finding: `${kernelWinner} provides better accuracy (${accDiff >= 0 ? '+' : ''}${accDiff.toFixed(2)}% margin).` },
     ];
     document.getElementById('summary-tbody').innerHTML = summaryData.map(r => `
         <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
@@ -354,7 +356,7 @@ function renderComparisons() {
     `).join('');
 }
 
-function cmpRow(label, value, highlight=false, highlightColor='#10b981') {
+function cmpRow(label, value, highlight = false, highlightColor = '#10b981') {
     return `<div class="flex justify-between py-2 border-b border-white/5 hover:bg-white/[0.02] transition-colors px-1">
         <span class="text-dim text-xs">${label}</span>
         <span class="font-mono text-xs ${highlight ? 'font-semibold' : 'text-zinc-300'}" style="${highlight ? `color: ${highlightColor}` : ''}">${value}</span>
@@ -365,9 +367,9 @@ function renderAnalysisTables(analysis) {
     let html = '';
     for (const [key, data] of Object.entries(analysis)) {
         if (!data.metrics || data.metrics.length === 0) continue;
-        html += `<div class="card p-6 border-t-2" style="border-top-color: ${COLORS[key==='cuda'?'cyan':key==='pyspark'?'fuchsia':'indigo']}">
+        html += `<div class="card p-6 border-t-2" style="border-top-color: ${COLORS[key === 'cuda' ? 'cyan' : key === 'pyspark' ? 'fuchsia' : 'indigo']}">
             <h4 class="font-display text-[13px] font-semibold text-white mb-4 uppercase tracking-widest flex justify-between items-center">
-                ${key.replace(/_/g,' ')} 
+                ${key.replace(/_/g, ' ')} 
                 <span class="text-[10px] text-dim font-mono normal-case tracking-normal border border-white/10 px-2 py-0.5 rounded bg-black/20">${data.source}</span>
             </h4>
             <div class="overflow-x-auto">
@@ -382,9 +384,9 @@ function renderAnalysisTables(analysis) {
                     <tbody class="divide-y divide-white/5">
                         ${data.metrics.map(m => `<tr class="hover:bg-white/[0.02] transition-colors">
                             <td class="py-2 text-zinc-200 font-medium">${m.class}</td>
-                            <td class="py-2 text-right font-mono text-zinc-400">${(m.precision*100).toFixed(1)}%</td>
-                            <td class="py-2 text-right font-mono text-zinc-400">${(m.recall*100).toFixed(1)}%</td>
-                            <td class="py-2 text-right font-mono font-medium ${m.f1 > 0.9 ? 'text-emerald-400' : 'text-zinc-200'}">${(m.f1*100).toFixed(1)}%</td>
+                            <td class="py-2 text-right font-mono text-zinc-400">${(m.precision * 100).toFixed(1)}%</td>
+                            <td class="py-2 text-right font-mono text-zinc-400">${(m.recall * 100).toFixed(1)}%</td>
+                            <td class="py-2 text-right font-mono font-medium ${m.f1 > 0.9 ? 'text-emerald-400' : 'text-zinc-200'}">${(m.f1 * 100).toFixed(1)}%</td>
                             <td class="py-2 text-right font-mono text-dim">${num(m.support)}</td>
                         </tr>`).join('')}
                     </tbody>
@@ -397,17 +399,16 @@ function renderAnalysisTables(analysis) {
 
 // ══════════════ PREDICT TAB ══════════════
 let selectedFile = null, selectedModel = 'pyspark', predictModels = [];
-let useDBSCAN = false, confThreshold = 0.5;
+let useDBSCAN = true, dbscanMode = 'hybrid', confThreshold = 0.5;
 
 // Per-model confidence thresholds matching C++ infer code constants
 const MODEL_CONF_THRESHOLDS = {
-    cuda:    0.5,
-    mpi:     0.8,
-    openmp:  0.67,
-    thread:  0.5,
+    cuda: 0.5,
+    mpi: 0.8,
+    openmp: 0.67,
+    thread: 1.0,
     pyspark: 0.5,
 };
-
 function setupPredict() {
     loadPredictModels();
     document.getElementById('btn-predict-manual').addEventListener('click', predictManual);
@@ -454,7 +455,7 @@ function setupPredict() {
     const dbscanToggle = document.getElementById('dbscan-toggle');
     const dbscanSettings = document.getElementById('dbscan-settings');
     const confThresholdSlider = document.getElementById('conf-threshold');
-    const confThresholdValue = document.getElementById('conf-threshold-value');
+    const confThresholdContainer = document.getElementById('conf-threshold-container');
 
     if (dbscanToggle) {
         dbscanToggle.addEventListener('change', e => {
@@ -465,11 +466,31 @@ function setupPredict() {
         });
     }
 
+    // DBSCAN mode selection (hybrid vs only)
+    document.querySelectorAll('input[name="dbscan-mode"]').forEach(radio => {
+        radio.addEventListener('change', e => {
+            dbscanMode = e.target.value;
+            console.log('DBSCAN mode changed to:', dbscanMode);
+            // Hide confidence threshold in "only" mode (not used)
+            if (confThresholdContainer) {
+                confThresholdContainer.classList.toggle('hidden', dbscanMode === 'only');
+            }
+        });
+    });
+
+    // Sync dbscanMode with currently selected radio on page load
+    const selectedModeRadio = document.querySelector('input[name="dbscan-mode"]:checked');
+    if (selectedModeRadio) {
+        dbscanMode = selectedModeRadio.value;
+        console.log('Initial DBSCAN mode:', dbscanMode);
+    }
+
     if (confThresholdSlider) {
         confThresholdSlider.addEventListener('input', e => {
             confThreshold = parseFloat(e.target.value);
-            if (confThresholdValue) {
-                confThresholdValue.textContent = confThreshold.toFixed(2);
+            const valueSpan = document.getElementById('conf-threshold-value');
+            if (valueSpan) {
+                valueSpan.textContent = confThreshold.toFixed(2);
             }
         });
     }
@@ -498,12 +519,12 @@ async function loadPredictModels() {
         predictModels = data.models;
         renderModelSelector();
         loadPredictInfo(selectedModel);
-    } catch(e) { console.error(e); }
+    } catch (e) { console.error(e); }
 }
 
 function renderModelSelector() {
     const container = document.getElementById('model-selector');
-    if(!container) return;
+    if (!container) return;
     container.innerHTML = predictModels.map((m) => `
         <button class="model-select-btn ${m.id === selectedModel ? 'active' : ''}" data-model="${m.id}">
             <span class="text-xl">${MODEL_ICONS[m.id] || '📊'}</span>
@@ -513,7 +534,16 @@ function renderModelSelector() {
             </div>
             <span class="w-2 h-2 rounded-full ${m.loaded ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-amber-500 shadow-[0_0_8px_#f59e0b]'}"></span>
         </button>
-    `).join('');
+    `).join('') + `
+        <button class="model-select-btn ${'dbscan' === selectedModel ? 'active' : ''}" data-model="dbscan">
+            <span class="text-xl">🔍</span>
+            <div class="flex flex-col items-start pr-2">
+                <span class="font-display font-semibold text-sm tracking-wide shadow-sm">Pure DBSCAN</span>
+                <span class="font-mono text-[10px] text-dim">Unsupervised</span>
+            </div>
+            <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+        </button>
+    `;
     container.querySelectorAll('.model-select-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             selectedModel = btn.dataset.model;
@@ -532,6 +562,41 @@ function renderModelSelector() {
 }
 
 async function loadPredictInfo(modelId = 'pyspark') {
+    if (modelId === 'dbscan') {
+        const el = document.getElementById('predict-model-info');
+        el.className = `card p-6 border-l-4 border-l-indigo-500 transition-colors`;
+        el.innerHTML = `
+            <div class="flex items-center gap-3 mb-5">
+                <span class="relative flex h-3 w-3">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <span class="font-display text-sm font-semibold tracking-wide text-white">DBSCAN Clustering Ready</span>
+                <span class="text-[10px] font-mono text-dim border border-white/10 px-2 py-0.5 rounded bg-black/20 ml-auto whitespace-nowrap">Unsupervised</span>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-[13px]">
+                ${dr2('Algorithm', `<span class="text-white">DBSCAN</span>`)}
+                ${dr2('Input Dimensions', 52)}
+                ${dr2('Metric', 'Euclidean')}
+                ${dr2('Epsilon (eps)', 'Auto-tuned')}
+            </div>
+            <div class="h-px bg-white/5 my-4"></div>
+            <p class="mt-4 text-[13px] text-dim leading-relaxed italic border-l-2 border-white/10 pl-3">Pure unsupervised anomaly detection. Replaces SVM entirely and clusters raw 52-dimensional traffic features to detect unseen threats.</p>`;
+
+        // Auto-switch UI to DBSCAN mode
+        const dbscanToggle = document.getElementById('dbscan-toggle');
+        if (dbscanToggle && !dbscanToggle.checked) {
+            dbscanToggle.checked = true;
+            dbscanToggle.dispatchEvent(new Event('change'));
+        }
+        const radioOnly = document.querySelector('input[name="dbscan-mode"][value="only"]');
+        if (radioOnly) {
+            radioOnly.checked = true;
+            radioOnly.dispatchEvent(new Event('change'));
+        }
+        return;
+    }
+
     try {
         const info = await api(`/api/predict/info?model=${modelId}`);
         const el = document.getElementById('predict-model-info');
@@ -540,24 +605,24 @@ async function loadPredictInfo(modelId = 'pyspark') {
             <div class="flex items-center gap-3 mb-5">
                 <span class="relative flex h-3 w-3">
                     ${info.model_loaded ? '<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>' : ''}
-                    <span class="relative inline-flex rounded-full h-3 w-3 ${info.model_loaded?'bg-emerald-500':'bg-red-500'}"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 ${info.model_loaded ? 'bg-emerald-500' : 'bg-red-500'}"></span>
                 </span>
-                <span class="font-display text-sm font-semibold tracking-wide text-white">${info.model_loaded?'Engine Ready & Armed':'Engine Offline'}</span>
+                <span class="font-display text-sm font-semibold tracking-wide text-white">${info.model_loaded ? 'Engine Ready & Armed' : 'Engine Offline'}</span>
                 <span class="text-[10px] font-mono text-dim border border-white/10 px-2 py-0.5 rounded bg-black/20 ml-auto whitespace-nowrap">${info.technique || ''}</span>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-[13px]">
-                ${dr2('Kernel Strategy',`<span class="text-white">${info.model_type}</span>`)}
-                ${dr2('Input Dimensions',info.n_features)}
-                ${dr2('Ensemble Branches',info.n_sub_models)}
-                ${dr2('Hyperparameter γ',info.gamma?.toFixed(4)||'N/A')}
+                ${dr2('Kernel Strategy', `<span class="text-white">${info.model_type}</span>`)}
+                ${dr2('Input Dimensions', info.n_features)}
+                ${dr2('Ensemble Branches', info.n_sub_models)}
+                ${dr2('Hyperparameter γ', info.gamma?.toFixed(4) || 'N/A')}
             </div>
             <div class="h-px bg-white/5 my-4"></div>
             <div class="text-[13px] flex flex-wrap gap-2 items-center">
                 <span class="text-dim uppercase tracking-wider text-[10px] font-semibold mr-2">Identifiable Threats:</span> 
-                ${Object.entries(info.classes||{}).map(([k,v])=>`<span class="px-2 py-1 bg-white/[0.03] border border-white/5 rounded text-xs font-mono text-zinc-300 shadow-sm">${v}</span>`).join('')}
+                ${Object.entries(info.classes || {}).map(([k, v]) => `<span class="px-2 py-1 bg-white/[0.03] border border-white/5 rounded text-xs font-mono text-zinc-300 shadow-sm">${v}</span>`).join('')}
             </div>
             <p class="mt-4 text-[13px] text-dim leading-relaxed italic border-l-2 border-white/10 pl-3">${info.description || ''}</p>`;
-    } catch(e) { console.error(e); }
+    } catch (e) { console.error(e); }
 }
 
 // Real CICIDS 2017/2018 Attack Samples (52 features each)
@@ -587,7 +652,7 @@ async function loadAttackSamples() {
             // Fallback to full file
             document.getElementById('manual-input').value = text;
         }
-    } catch(e) {
+    } catch (e) {
         console.error('Failed to load samples:', e);
         // Fallback to real CICIDS samples
         const samples = [
@@ -604,7 +669,7 @@ async function predictManual() {
     if (!text) return;
 
     const lines = text.split('\n').filter(l => l.trim() && !l.trim().startsWith('#'));
-    const features = lines.map(l => l.split(',').map(v=>parseFloat(v.trim())).filter(v=>!isNaN(v)));
+    const features = lines.map(l => l.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v)));
 
     if (features.length === 0 || features.some(f => f.length < 52)) {
         alert('Invalid matrix dimension. Ensure 52 floating-point features per flow.'); return;
@@ -612,16 +677,20 @@ async function predictManual() {
 
     try {
         const payload = {
-            features: features.map(f=>f.slice(0,52)),
+            features: features.map(f => f.slice(0, 52)),
             model: selectedModel,
-            use_dbscan: useDBSCAN,
+            use_dbscan: selectedModel === 'dbscan' ? true : useDBSCAN,
+            dbscan_mode: selectedModel === 'dbscan' ? 'only' : dbscanMode,
             conf_threshold: confThreshold
         };
-        const res = await fetch('/api/predict', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        console.log('Predict payload:', { model: selectedModel, use_dbscan: useDBSCAN, dbscan_mode: dbscanMode });
+        const res = await fetch('/api/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await res.json();
+        console.log('API Response:', data);
+        console.log('DBSCAN breakdown mode:', data.dbscan_breakdown?.mode);
         if (!res.ok) { alert(data.detail); return; }
         showPredictResults(data);
-    } catch(e) { alert('Inference pipeline fault: '+e.message); }
+    } catch (e) { alert('Inference pipeline fault: ' + e.message); }
 }
 
 async function predictCSV() {
@@ -629,13 +698,17 @@ async function predictCSV() {
     const form = new FormData();
     form.append('file', selectedFile);
     form.append('model', selectedModel);
-    form.append('use_dbscan', useDBSCAN ? 'true' : 'false');
+    form.append('use_dbscan', (selectedModel === 'dbscan' || useDBSCAN) ? 'true' : 'false');
+    form.append('dbscan_mode', selectedModel === 'dbscan' ? 'only' : dbscanMode);
     form.append('conf_threshold', confThreshold.toString());
     try {
-        const res = await fetch('/api/predict/csv', {method:'POST', body:form});
+        console.log('CSV Predict payload:', { model: selectedModel, use_dbscan: useDBSCAN, dbscan_mode: dbscanMode });
+        const res = await fetch('/api/predict/csv', { method: 'POST', body: form });
         const data = await res.json();
+        console.log('API Response:', data);
+        console.log('DBSCAN breakdown mode:', data.dbscan_breakdown?.mode);
         showPredictResults(data);
-    } catch(e) { alert('Batch ingestion failed: '+e.message); }
+    } catch (e) { alert('Batch ingestion failed: ' + e.message); }
     finally {
         btnEl.disabled = false;
         btnEl.innerHTML = 'Upload & Predict';
@@ -646,17 +719,91 @@ function showPredictResults(data) {
     const section = document.getElementById('predict-results');
     section.classList.remove('hidden');
 
-    // Add DBSCAN badge if enabled
-    const dbscanBadge = data.dbscan ? `<span class="bg-purple-500/20 text-purple-400 font-mono text-[10px] px-2 py-1 rounded ml-2 border border-purple-500/30 tracking-widest uppercase">🔍 DBSCAN</span>` : '';
+    // Add DBSCAN badge if enabled with holdout class info
+    let dbscanBadge = '';
+    if (data.dbscan && data.dbscan_breakdown && data.dbscan_breakdown.holdout_classes) {
+        const holdoutNames = Object.values(data.dbscan_breakdown.holdout_classes).join(', ');
+        dbscanBadge = `<span class="bg-purple-500/20 text-purple-400 font-mono text-[10px] px-2 py-1 rounded ml-2 border border-purple-500/30 tracking-widest uppercase">🔍 DBSCAN</span><span class="bg-amber-500/20 text-amber-400 font-mono text-[9px] px-2 py-1 rounded ml-2 border border-amber-500/30">Detecting: ${holdoutNames}</span>`;
+    } else if (data.dbscan) {
+        dbscanBadge = `<span class="bg-purple-500/20 text-purple-400 font-mono text-[10px] px-2 py-1 rounded ml-2 border border-purple-500/30 tracking-widest uppercase">🔍 DBSCAN</span>`;
+    }
     document.getElementById('predict-results-header').innerHTML = `Prediction Results <span class="bg-indigo-500/20 text-indigo-400 font-mono text-[10px] px-2 py-1 rounded ml-3 border border-indigo-500/30 tracking-widest uppercase">${data.model || selectedModel}</span>${dbscanBadge}`;
 
     const counts = {};
-    if (data.predictions) data.predictions.forEach(p => { counts[p.predicted_label] = (counts[p.predicted_label]||0)+1; });
+    if (data.predictions) data.predictions.forEach(p => { counts[p.predicted_label] = (counts[p.predicted_label] || 0) + 1; });
     const classCounts = Object.entries(data.summary || counts);
 
     // Add DBSCAN stats cards
     let summaryHTML = '';
-    if (data.dbscan) {
+    if (data.dbscan && data.dbscan_breakdown) {
+        const bd = data.dbscan_breakdown;
+        const db = data.dbscan;
+
+        // Format holdout classes for display
+        const holdoutClassNames = bd.holdout_classes ? Object.values(bd.holdout_classes).join(', ') : 'Bots, BruteForce, WebAttacks';
+
+        // Check if DBSCAN-only mode
+        if (bd.mode === 'dbscan_only') {
+            summaryHTML += `
+                <div class="card px-5 py-4 border bg-cyan-500/10 border-cyan-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                    <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Clustered</p>
+                    <p class="text-3xl font-display font-bold text-cyan-400 tracking-tight relative z-10 drop-shadow-md">${bd.clustered_samples.count}</p>
+                    <p class="text-[10px] text-cyan-400/60 mt-1 relative z-10">${bd.clustered_samples.percentage}%</p>
+                    <p class="text-[9px] text-cyan-400/40 mt-1 relative z-10 font-medium">DBSCAN Classified</p>
+                </div>
+                <div class="card px-5 py-4 border bg-amber-500/10 border-amber-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                    <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Outliers</p>
+                    <p class="text-3xl font-display font-bold text-amber-400 tracking-tight relative z-10 drop-shadow-md">${bd.outliers.count}</p>
+                    <p class="text-[10px] text-amber-400/60 mt-1 relative z-10">${bd.outliers.percentage}%</p>
+                    <p class="text-[9px] text-amber-400/40 mt-1 relative z-10 font-medium">Holdout: ${holdoutClassNames}</p>
+                </div>
+                <div class="card px-5 py-4 border bg-fuchsia-500/10 border-fuchsia-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                    <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Clusters</p>
+                    <p class="text-3xl font-display font-bold text-fuchsia-400 tracking-tight relative z-10 drop-shadow-md">${db.n_clusters}</p>
+                    <p class="text-[10px] text-fuchsia-400/60 mt-1 relative z-10">eps: ${db.eps.toFixed(2)}</p>
+                </div>
+            `;
+        } else {
+            // Hybrid mode
+            summaryHTML += `
+            <div class="card px-5 py-4 border bg-purple-500/10 border-purple-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Confident SVM</p>
+                <p class="text-3xl font-display font-bold text-purple-400 tracking-tight relative z-10 drop-shadow-md">${bd.confident_predictions.count}</p>
+                <p class="text-[10px] text-purple-400/60 mt-1 relative z-10">${bd.confident_predictions.percentage}%</p>
+            </div>
+            <div class="card px-5 py-4 border bg-emerald-500/10 border-emerald-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Normal (Low Conf)</p>
+                <p class="text-3xl font-display font-bold text-emerald-400 tracking-tight relative z-10 drop-shadow-md">${bd.uncertain_normal.count}</p>
+                <p class="text-[10px] text-emerald-400/60 mt-1 relative z-10">${bd.uncertain_normal.percentage}%</p>
+            </div>
+            <div class="card px-5 py-4 border bg-cyan-500/10 border-cyan-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">DBSCAN Verified</p>
+                <p class="text-3xl font-display font-bold text-cyan-400 tracking-tight relative z-10 drop-shadow-md">${bd.dbscan_verified_attacks.count}</p>
+                <p class="text-[10px] text-cyan-400/60 mt-1 relative z-10">${bd.dbscan_verified_attacks.percentage}%</p>
+            </div>
+            <div class="card px-5 py-4 border bg-amber-500/10 border-amber-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Novel / Unknown</p>
+                <p class="text-3xl font-display font-bold text-amber-400 tracking-tight relative z-10 drop-shadow-md">${bd.novel_unknown_attacks.count}</p>
+                <p class="text-[10px] text-amber-400/60 mt-1 relative z-10">${bd.novel_unknown_attacks.percentage}%</p>
+                <p class="text-[9px] text-amber-400/40 mt-1 relative z-10 font-medium">Holdout: ${holdoutClassNames}</p>
+            </div>
+            <div class="card px-5 py-4 border bg-fuchsia-500/10 border-fuchsia-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                <p class="text-[11px] text-dim uppercase tracking-widest font-display font-medium mb-1 relative z-10">Clusters</p>
+                <p class="text-3xl font-display font-bold text-fuchsia-400 tracking-tight relative z-10 drop-shadow-md">${db.n_clusters}</p>
+                <p class="text-[10px] text-fuchsia-400/60 mt-1 relative z-10">eps: ${db.eps.toFixed(2)}</p>
+            </div>
+        `;
+        }
+    } else if (data.dbscan) {
+        // Fallback to old format if breakdown not available
         const db = data.dbscan;
         summaryHTML += `
             <div class="card px-5 py-4 border bg-purple-500/10 border-purple-500/20 flex flex-col items-center justify-center relative overflow-hidden">
@@ -686,7 +833,7 @@ function showPredictResults(data) {
             </div>
         `;
     } else {
-        summaryHTML = classCounts.length > 0 ? classCounts.map(([cls,cnt]) => {
+        summaryHTML = classCounts.length > 0 ? classCounts.map(([cls, cnt]) => {
             const isNormal = cls === 'NormalTraffic';
             const color = isNormal ? 'text-emerald-400' : 'text-amber-400';
             const bgRow = isNormal ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20';
@@ -700,15 +847,15 @@ function showPredictResults(data) {
     document.getElementById('predict-summary').innerHTML = summaryHTML;
 
     const show = (data.predictions || []).slice(0, 100);
-    document.getElementById('predict-results-tbody').innerHTML = show.map((p,i) => {
-        const voteStr = Object.entries(p.votes||{}).map(([c,v])=>`<span class="text-zinc-500">${c}:</span><span class="text-zinc-300 ml-1">${typeof v === 'number' ? v.toFixed(4) : v}</span>`).join(' <span class="text-white/10 mx-1">|</span> ');
+    document.getElementById('predict-results-tbody').innerHTML = show.map((p, i) => {
+        const voteStr = Object.entries(p.votes || {}).map(([c, v]) => `<span class="text-zinc-500">${c}:</span><span class="text-zinc-300 ml-1">${typeof v === 'number' ? v.toFixed(4) : v}</span>`).join(' <span class="text-white/10 mx-1">|</span> ');
         const lbl = p.predicted_label || '';
-        const isNormal     = lbl === 'NormalTraffic' || lbl === 'Normal';
+        const isNormal = lbl === 'NormalTraffic' || lbl === 'Normal';
         const isLowConfNormal = isNormal && p.is_uncertain === true;
-        const isUnknown    = lbl.startsWith('Unknown');
-        const isNovel      = p.is_novel === true;
+        const isUnknown = lbl.startsWith('Unknown');
+        const isNovel = p.is_novel === true;
         const isUnverified = lbl.endsWith('(Unverified)');
-        const isUncertain  = p.is_uncertain === true;
+        const isUncertain = p.is_uncertain === true;
 
         let labelClass = '';
         let labelBadge = '';
@@ -729,26 +876,34 @@ function showPredictResults(data) {
             labelClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
         }
 
-        const clusterInfo = (p.cluster_id !== undefined && p.cluster_id !== null && p.cluster_id >= 0) ? ` <span class="text-cyan-400 text-[10px]">C${p.cluster_id}</span>` : '';
+        let cleanLabel = p.predicted_label || '';
+        // Format string like "Unknown (Cluster)" -> render cleanly
+        // If it still says "Novel: DDoS", strip the "Novel: " part but keep the formatting
+        cleanLabel = cleanLabel.replace(/^Novel:\s*/i, '');
+        cleanLabel = cleanLabel.replace(/\s*\(Cluster \d+\)/i, ' (Cluster)');
+        
+        if (cleanLabel.match(/^Cluster \d+$/i)) cleanLabel = "Unknown (Cluster)";
+
+        const clusterInfo = (p.cluster_id !== undefined && p.cluster_id !== null && p.cluster_id >= 0) ? `<span class="text-cyan-400 text-[10px] ml-1">C${p.cluster_id}</span>` : '';
 
         return `<tr class="hover:bg-white/[0.04] transition-colors group">
-            <td class="px-5 py-3 text-xs font-mono text-zinc-600 group-hover:text-zinc-400">#${(i+1).toString().padStart(3,'0')}</td>
+            <td class="px-5 py-3 text-xs font-mono text-zinc-600 group-hover:text-zinc-400">#${(i + 1).toString().padStart(3, '0')}</td>
             <td class="px-5 py-3">
                 <span class="inline-flex items-center px-2.5 py-1 rounded border text-xs font-mono font-medium tracking-wide shadow-sm ${labelClass}">
-                    ${labelBadge} ${p.predicted_label}${clusterInfo}
+                    ${labelBadge ? labelBadge + ' ' : ''}${cleanLabel}${clusterInfo}
                 </span>
             </td>
             <td class="px-5 py-3 font-mono text-[13px] ${p.confidence > 0.8 ? 'text-zinc-100' : isUncertain ? 'text-amber-400' : 'text-zinc-400'}">${p.confidence.toFixed(4)}</td>
             <td class="px-5 py-3 text-[11px] font-mono whitespace-nowrap overflow-x-auto">${voteStr}</td>
         </tr>`;
     }).join('');
-    section.scrollIntoView({behavior:'smooth', block:'start'});
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ══════════════ HELPERS ══════════════
-function ordered() { return MODEL_ORDER.filter(id=>models[id]).map(id=>[id,models[id]]); }
-function fmt(ms) { if(!ms||ms===0)return'—'; if(ms<1000)return ms.toFixed(0)+' ms'; if(ms<60000)return(ms/1000).toFixed(1)+' s'; return(ms/60000).toFixed(1)+' min'; }
-function num(n) { if(n==null)return'—'; return Number(n).toLocaleString(); }
-function mk(id,type,labels,datasets,options) { if(charts[id])charts[id].destroy(); charts[id]=new Chart(document.getElementById(id),{type,data:{labels,datasets},options}); }
-function dr(l,v,hl=false) { return `<div class="flex justify-between py-2 border-b border-white/5 hover:bg-white/[0.02] transition-colors px-1"><span class="text-dim">${l}</span><span class="font-mono ${hl?'font-semibold text-white':'text-zinc-300'}">${v}</span></div>`; }
-function dr2(l,v) { return `<div><span class="text-dim block mb-1 uppercase tracking-widest text-[10px] font-medium">${l}</span> <span class="font-mono text-zinc-300 text-sm bg-black/20 border border-white/5 px-2.5 py-1 rounded inline-block w-full">${v}</span></div>`; }
+function ordered() { return MODEL_ORDER.filter(id => models[id]).map(id => [id, models[id]]); }
+function fmt(ms) { if (!ms || ms === 0) return '—'; if (ms < 1000) return ms.toFixed(0) + ' ms'; if (ms < 60000) return (ms / 1000).toFixed(1) + ' s'; return (ms / 60000).toFixed(1) + ' min'; }
+function num(n) { if (n == null) return '—'; return Number(n).toLocaleString(); }
+function mk(id, type, labels, datasets, options) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart(document.getElementById(id), { type, data: { labels, datasets }, options }); }
+function dr(l, v, hl = false) { return `<div class="flex justify-between py-2 border-b border-white/5 hover:bg-white/[0.02] transition-colors px-1"><span class="text-dim">${l}</span><span class="font-mono ${hl ? 'font-semibold text-white' : 'text-zinc-300'}">${v}</span></div>`; }
+function dr2(l, v) { return `<div><span class="text-dim block mb-1 uppercase tracking-widest text-[10px] font-medium">${l}</span> <span class="font-mono text-zinc-300 text-sm bg-black/20 border border-white/5 px-2.5 py-1 rounded inline-block w-full">${v}</span></div>`; }

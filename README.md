@@ -1,84 +1,71 @@
-# HPCE Term Project - Network Intrusion Detection System
-## SVM + DBSCAN with 5 Parallel Processing Techniques
+# HPCE Term Project - Advanced Network Intrusion Detection System (NIDS)
 
-### Project Structure
-```
+An Enterprise-grade Hybrid Anomaly Detection system built with C++, CUDA, MPI, OpenMP, Threading, PySpark, and an Interactive Web Dashboard.
+
+## Architecture Highlights
+
+- **Parallel Inference Engines**: 5 distinct parallelization strategies evaluating Random Fourier Features (RFF) and One-vs-Rest (OvR) Support Vector Machines.
+- **Hybrid Threat Detection**: Combines Supervised Learning (SVM) for known threats and Unsupervised Clustering (DBSCAN) for novel zero-day attacks.
+- **FastAPI / Python Backend**: Serves predictions and clustering analytics to the client.
+- **Dynamic Vanilla JS Dashboard**: Aesthetic, glassmorphism UI for visualizing real-time predictions and insights.
+- **Novelty Detection (Zero-Day)**: Uses `dbscan_model.bin` thresholds to cluster uncertain behavioral patterns into new potential threats (Bots, BruteForce, WebAttacks).
+
+## Project Structure
+
+```text
 hpce_code/
-├── Makefile                    # Build all techniques
-├── README.md                   # This file
-├── scripts/
-│   └── generate_data.py        # Generate synthetic KDD-like dataset
-├── src/
-│   ├── common.h                # Shared: SVM, DBSCAN, I/O, timing
-│   ├── sequential.cpp          # Sequential baseline
-│   ├── cpp_thread.cpp          # C++ std::thread parallel
-│   ├── openmp.cpp              # OpenMP parallel
-│   ├── mpi_ids.cpp             # MPI distributed
-│   ├── cuda_ids.cu             # CUDA GPU accelerated
-│   └── pyspark_ids.py          # PySpark distributed
-├── data/                       # Generated dataset (created by generate_data.py)
-└── bin/                        # Compiled binaries
+├── cuda/                       # CUDA GPU Accelerated inference
+├── mpi/                        # MPI Distributed message-passing inference
+├── openmp/                     # OpenMP Multi-core parallel inference
+├── thread/                     # C++ std::thread POSIX parallel inference
+├── pyspark/                    # PySpark Distributed inference cluster
+└── web/                        # Dashboard & Backend API Server
+    ├── config.py               # Constants, Thresholds, & Label Encoders
+    ├── main.py                 # FastAPI Application Entrypoint
+    ├── models/
+    │   ├── dbscan.py           # Hybrid & Pure DBSCAN Logic
+    │   └── predictor.py        # Centralized Model Wrapper API
+    ├── static/                 # Frontend UI
+    │   ├── index.html          # Dashboard Markup
+    │   ├── app.js              # Application Logic & UI Interactions
+    │   └── style.css           # Styling
 ```
 
-### Quick Start
+## Dashboard Features
+
+- **Inference Engine Selection**: Switch seamlessly between CUDA, MPI, OpenMP, Thread, and PySpark backends.
+- **DBSCAN Anomaly Clustering**:
+  - **Hybrid Mode**: Let the SVM classify high-confidence data, and only pass low-confidence (Uncertain) predictions down to DBSCAN for behavioral clustering.
+  - **Pure DBSCAN (Unsupervised)**: Completely bypass the SVM. Run an auto-tuned, pure Unsupervised Learning algorithm directly on the raw 52-dimensional features to observe intrinsic cluster distributions.
+- **Real-Time Threshold Tuning**: Interactive Confidence Threshold slider to control how strictly the SVM votes must agree before offloading to DBSCAN.
+- **Detailed Threat Table**: View prediction results with explicit labels for `(Cluster)` identified patterns and `(Outlier)` unverified behavior.
+
+## Quick Start (Web Dashboard)
+
+**1. Install Backend Dependencies:**
+
 ```bash
-# Generate data + build + run (Sequential, Thread, OpenMP, PySpark)
-make all
-make run
-
-# Build individual techniques
-make sequential
-make thread
-make openmp
-make mpi          # requires mpicxx
-make cuda         # requires nvcc
-
-# Run individual techniques
-./bin/sequential
-./bin/cpp_thread 8           # 8 threads
-./bin/openmp 8               # 8 threads
-mpirun -np 4 ./bin/mpi_ids   # 4 processes
-./bin/cuda_ids               # requires NVIDIA GPU
-python3 src/pyspark_ids.py 4 # 4 Spark workers
+cd web
+pip install -r requirements.txt
 ```
 
-### Dataset Options
+**2. Start the FastAPI Server:**
+
 ```bash
-# Default: 10,000 samples, 34 features
-python3 scripts/generate_data.py
-
-# Custom size (for benchmarking)
-python3 scripts/generate_data.py 50000 34    # 50K samples
-python3 scripts/generate_data.py 100000 41   # 100K samples, 41 features (KDD)
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Pipeline: SVM-First, DBSCAN-Second
-1. **Preprocessing**: Load CSV, normalize features
-2. **SVM Classification**: Train RBF kernel SVM, predict test data with confidence scores
-3. **DBSCAN Anomaly Detection**: Process only uncertain subset (confidence < threshold)
-4. **Output**: Known attack labels + unknown attack alerts + performance metrics
+**3. Access the Application:**
 
-### Performance Metrics
-Each technique reports:
-- **Execution time** (ms) with breakdown per stage
-- **FLOP count** (total floating point operations)
-- **GFLOPS** (throughput)
-- **Accuracy** and confusion matrix
-- **Unknown attack count** (DBSCAN noise points)
+Open your browser and navigate to `http://localhost:8000`.
 
-### Dependencies
-| Technique | Compiler/Tool | Flag |
-|-----------|--------------|------|
-| Sequential | g++ | -O2 |
-| C++ Thread | g++ | -pthread |
-| OpenMP | g++ | -fopenmp |
-| MPI | mpicxx | - |
-| CUDA | nvcc | - |
-| PySpark | python3 | pip install pyspark |
+## Hybrid vs Pure DBSCAN Pipeline
 
-### Monitoring CPU Usage
-```bash
-# In another terminal while running:
-top
-# Press '1' to see per-core usage
-```
+1. **Preprocessing**: 52-dimensional features are normalized using StandardScaler mechanisms matching the C++ inference tools.
+2. **SVM Classification (Hybrid Mode)**: Evaluates the features using pre-computed One-vs-Rest weights.
+    - **High Confidence**: Handled directly as the targeted threat (or Normal traffic).
+    - **Low Confidence**: Forwarded to the DBSCAN layer.
+3. **DBSCAN Clustering**:
+    - Analyzes uncertain data or raw payloads (if Pure mode is enabled).
+    - Data points forming new dense structures are flagged as `Unknown (Cluster)` indicating a novel attack pattern.
+    - Isolated data points are flagged as `Unknown (Outlier)` representing pure noise or unpredictable anomaly states.
