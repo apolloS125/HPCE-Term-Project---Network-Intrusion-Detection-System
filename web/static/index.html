@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NIDS — HPC Model Dashboard</title>
+    <title>NIDS — Advanced Analytics Dashboard</title>
     <meta name="description" content="Network Intrusion Detection System — HPC Performance Comparison">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -16,10 +16,11 @@
                 extend: {
                     fontFamily: {
                         sans: ['Inter', 'system-ui', 'sans-serif'],
+                        display: ['Outfit', 'sans-serif'],
                         mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
-                        surface: { 0: '#09090b', 1: '#111113', 2: '#18181b', 3: '#1f1f23' },
+                        surface: { 0: '#050505', 1: '#09090b', 2: '#121214', 3: '#1a1a1d' },
                         dim: '#71717a',
                         subtle: '#a1a1aa',
                     }
@@ -30,71 +31,93 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="bg-surface-0 text-zinc-200 min-h-screen antialiased">
+<body class="bg-surface-0 text-zinc-200 min-h-screen antialiased relative selection:bg-indigo-500/30">
+
+    <!-- Ambient Background Glows -->
+    <div class="fixed inset-0 pointer-events-none z-[-1] overflow-hidden">
+        <div class="absolute -top-[10%] -left-[10%] w-[50%] h-[50%] bg-indigo-600/10 blur-[120px] rounded-full mix-blend-screen"></div>
+        <div class="absolute top-[20%] -right-[10%] w-[40%] h-[40%] bg-violet-600/10 blur-[120px] rounded-full mix-blend-screen"></div>
+        <div class="absolute -bottom-[10%] left-[20%] w-[60%] h-[60%] bg-cyan-600/5 blur-[120px] rounded-full mix-blend-screen"></div>
+    </div>
 
     <!-- Header -->
-    <header class="sticky top-0 z-50 bg-surface-0/80 backdrop-blur-xl border-b border-zinc-800/60">
-        <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M8 14L12 10L16 14L20 10"/></svg>
+    <header class="sticky top-0 z-50 bg-black/40 backdrop-blur-2xl border-b border-white/5 shadow-2xl shadow-black/50">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M8 14L12 10L16 14L20 10"/></svg>
                 </div>
-                <h1 class="text-sm font-semibold tracking-tight">NIDS Dashboard</h1>
-                <span class="text-[11px] text-dim bg-zinc-800 px-2 py-0.5 rounded-full">CICIDS 2017</span>
+                <h1 class="font-display font-semibold tracking-wide text-[15px] text-zinc-100">NIDS<span class="text-dim ml-1 font-normal">Analytics</span></h1>
+                <span class="text-[10px] font-mono tracking-widest text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-1 rounded-md ml-2 hidden sm:inline-block">CICIDS 2017</span>
             </div>
 
             <!-- Tab Navigation -->
-            <nav class="flex items-center gap-1">
+            <nav class="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
                 <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
                 <button class="tab-btn" data-tab="analysis">Analysis</button>
                 <button class="tab-btn" data-tab="predict">Predict</button>
             </nav>
 
-            <div class="flex items-center gap-2 text-xs text-dim" id="status">
-                <span class="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span>
-                Loading...
+            <div class="flex items-center gap-2 text-xs font-medium text-zinc-400" id="status">
+                <span class="relative flex h-2.5 w-2.5">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500"></span>
+                </span>
+                Connecting...
             </div>
         </div>
     </header>
 
     <!-- ═══════════ Dashboard Tab ═══════════ -->
-    <main class="tab-content active max-w-6xl mx-auto px-6 py-8 space-y-8" id="tab-dashboard">
+    <main class="tab-content active max-w-7xl mx-auto px-6 py-10 space-y-10" id="tab-dashboard">
 
         <!-- KPI Strip -->
-        <section class="grid grid-cols-2 md:grid-cols-4 gap-3 fade-in" id="kpi-strip" style="animation-delay:.1s"></section>
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4 auto-rows-fr fade-in" id="kpi-strip" style="animation-delay:.1s"></section>
 
         <!-- Model Cards -->
         <section class="fade-in" style="animation-delay:.2s">
-            <h2 class="section-title">Models</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3" id="model-cards"></div>
+            <h2 class="section-title">Active Models</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4" id="model-cards"></div>
         </section>
 
         <!-- Charts Row -->
-        <section class="grid grid-cols-1 lg:grid-cols-2 gap-3 fade-in" style="animation-delay:.3s">
-            <div class="card p-5">
-                <h3 class="section-title mb-4">Accuracy (%)</h3>
-                <div class="h-56"><canvas id="chart-acc"></canvas></div>
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-in" style="animation-delay:.3s">
+            <div class="card p-6">
+                <h3 class="section-title mb-5">Accuracy Spectrum (%)</h3>
+                <div class="h-64"><canvas id="chart-acc"></canvas></div>
             </div>
-            <div class="card p-5">
-                <h3 class="section-title mb-4">Total Time (seconds)</h3>
-                <div class="h-56"><canvas id="chart-time"></canvas></div>
+            <div class="card p-6">
+                <h3 class="section-title mb-5">Execution Time (seconds)</h3>
+                <div class="h-64"><canvas id="chart-time"></canvas></div>
+            </div>
+        </section>
+
+        <!-- Pipeline + GFLOPS -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-in" style="animation-delay:.4s">
+            <div class="card p-6">
+                <h3 class="section-title mb-5">Pipeline Architecture Time</h3>
+                <div class="h-64"><canvas id="chart-pipeline"></canvas></div>
+            </div>
+            <div class="card p-6">
+                <h3 class="section-title mb-5">Computational Throughput (GFLOPS)</h3>
+                <div class="h-64"><canvas id="chart-gflops"></canvas></div>
             </div>
         </section>
 
         <!-- Detailed Table -->
-        <section class="fade-in" style="animation-delay:.4s">
-            <h2 class="section-title">Performance Breakdown</h2>
+        <section class="fade-in" style="animation-delay:.5s">
+            <h2 class="section-title">Performance Telemetry</h2>
             <div class="card overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm" id="perf-table">
                         <thead>
-                            <tr class="border-b border-zinc-800 text-left">
-                                <th class="th-cell">Model</th>
+                            <tr class="border-b border-white/5 text-left bg-white/[0.02]">
+                                <th class="th-cell">Architecture</th>
                                 <th class="th-cell">Accuracy</th>
-                                <th class="th-cell">Train</th>
-                                <th class="th-cell">Predict</th>
-                                <th class="th-cell">DBSCAN</th>
-                                <th class="th-cell">Total</th>
+                                <th class="th-cell">Train (ms)</th>
+                                <th class="th-cell">Predict (ms)</th>
+                                <th class="th-cell">DBSCAN (ms)</th>
+                                <th class="th-cell">Total Time</th>
                                 <th class="th-cell">GFLOPS</th>
                             </tr>
                         </thead>
@@ -104,120 +127,112 @@
             </div>
         </section>
 
-        <!-- Pipeline + GFLOPS -->
-        <section class="grid grid-cols-1 lg:grid-cols-2 gap-3 fade-in" style="animation-delay:.5s">
-            <div class="card p-5">
-                <h3 class="section-title mb-4">Pipeline Breakdown (seconds)</h3>
-                <div class="h-60"><canvas id="chart-pipeline"></canvas></div>
-            </div>
-            <div class="card p-5">
-                <h3 class="section-title mb-4">GFLOPS</h3>
-                <div class="h-60"><canvas id="chart-gflops"></canvas></div>
-            </div>
-        </section>
-
         <!-- Model Details Accordion -->
         <section class="fade-in" style="animation-delay:.6s">
-            <h2 class="section-title">Model Details</h2>
-            <div class="space-y-2" id="model-details"></div>
+            <h2 class="section-title">Architecture Details</h2>
+            <div class="space-y-3" id="model-details"></div>
         </section>
     </main>
 
     <!-- ═══════════ Analysis Tab ═══════════ -->
-    <div class="tab-content max-w-6xl mx-auto px-6 py-8 space-y-8" id="tab-analysis">
+    <div class="tab-content max-w-7xl mx-auto px-6 py-10 space-y-10" id="tab-analysis">
 
         <div>
-            <h2 class="text-xl font-bold tracking-tight">HPC Performance Analysis</h2>
-            <p class="text-sm text-dim mt-1">Comparative analysis of parallelization strategies</p>
+            <h2 class="font-display text-3xl font-semibold tracking-tight text-white mb-2">HPC Performance Analysis</h2>
+            <p class="text-sm text-subtle">In-depth comparative analysis of parallelization strategies and classification approaches.</p>
         </div>
 
         <!-- ═══ Comparison 1: Shared-memory ═══ -->
-        <section class="card p-5">
-            <div class="flex items-center gap-3 mb-4">
-                <span class="px-2 py-1 bg-indigo-500/20 text-indigo-400 text-[10px] font-semibold rounded">SHARED-MEMORY</span>
-                <h3 class="text-sm font-semibold">OpenMP vs C++ Thread</h3>
+        <section class="card p-8">
+            <div class="flex items-center gap-3 mb-6">
+                <span class="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-mono tracking-widest uppercase rounded flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span> Shared-Memory
+                </span>
+                <h3 class="font-display text-lg font-medium text-white">OpenMP vs C++ Thread</h3>
             </div>
-            <p class="text-xs text-dim mb-4">Both use shared-memory parallelism on multi-core CPU. Comparing threading implementations.</p>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Performance Metrics</h4>
-                    <div id="cmp-shared-metrics" class="space-y-2"></div>
+                    <p class="text-[13px] leading-relaxed text-dim mb-6">Comparative breakdown of OpenMP compiler directives versus standard C++ library threading for shared-memory multi-core CPU workloads.</p>
+                    <div id="cmp-shared-metrics" class="space-y-1"></div>
                 </div>
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">GFLOPS Comparison</h4>
-                    <div class="h-40"><canvas id="chart-cmp-shared"></canvas></div>
+                    <h4 class="text-[11px] font-medium text-dim mb-4 uppercase tracking-widest text-center">Throughput Comparison</h4>
+                    <div class="h-56"><canvas id="chart-cmp-shared"></canvas></div>
                 </div>
             </div>
         </section>
 
         <!-- ═══ Comparison 2: Distributed ═══ -->
-        <section class="card p-5">
-            <div class="flex items-center gap-3 mb-4">
-                <span class="px-2 py-1 bg-violet-500/20 text-violet-400 text-[10px] font-semibold rounded">DISTRIBUTED</span>
-                <h3 class="text-sm font-semibold">MPI vs PySpark</h3>
+        <section class="card p-8">
+            <div class="flex items-center gap-3 mb-6">
+                <span class="px-3 py-1 bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[10px] font-mono tracking-widest uppercase rounded flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse"></span> Distributed
+                </span>
+                <h3 class="font-display text-lg font-medium text-white">MPI vs PySpark</h3>
             </div>
-            <p class="text-xs text-dim mb-4">Distributed computing approaches: low-level MPI vs high-level Spark framework.</p>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Scalability Metrics</h4>
-                    <div id="cmp-dist-metrics" class="space-y-2"></div>
+                    <p class="text-[13px] leading-relaxed text-dim mb-6">Scalability and efficiency of low-level C++ MPI message passing compared with Apache Spark's high-level resilient distributed datasets.</p>
+                    <div id="cmp-dist-metrics" class="space-y-1"></div>
                 </div>
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Time Comparison</h4>
-                    <div class="h-40"><canvas id="chart-cmp-dist"></canvas></div>
+                    <h4 class="text-[11px] font-medium text-dim mb-4 uppercase tracking-widest text-center">Execution Time Comparison</h4>
+                    <div class="h-56"><canvas id="chart-cmp-dist"></canvas></div>
                 </div>
             </div>
         </section>
 
         <!-- ═══ Comparison 3: GPU vs CPU ═══ -->
-        <section class="card p-5">
-            <div class="flex items-center gap-3 mb-4">
-                <span class="px-2 py-1 bg-cyan-500/20 text-cyan-400 text-[10px] font-semibold rounded">GPU vs CPU</span>
-                <h3 class="text-sm font-semibold">CUDA vs OpenMP</h3>
+        <section class="card p-8">
+            <div class="flex items-center gap-3 mb-6">
+                <span class="px-3 py-1 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-mono tracking-widest uppercase rounded flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span> Hardware
+                </span>
+                <h3 class="font-display text-lg font-medium text-white">CUDA vs OpenMP</h3>
             </div>
-            <p class="text-xs text-dim mb-4">Comparing GPU massively-parallel vs CPU multi-threaded execution.</p>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Efficiency Metrics</h4>
-                    <div id="cmp-gpu-metrics" class="space-y-2"></div>
+                    <p class="text-[13px] leading-relaxed text-dim mb-6">Analyzing the raw computational horsepower of NVIDIA GPU massive parallelism against high-end CPU multi-core architectures.</p>
+                    <div id="cmp-gpu-metrics" class="space-y-1"></div>
                 </div>
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">GFLOPS Comparison</h4>
-                    <div class="h-40"><canvas id="chart-cmp-gpu"></canvas></div>
+                    <h4 class="text-[11px] font-medium text-dim mb-4 uppercase tracking-widest text-center">Floating-Point Operations (GFLOPS)</h4>
+                    <div class="h-56"><canvas id="chart-cmp-gpu"></canvas></div>
                 </div>
             </div>
         </section>
 
-        <!-- ═══ Comparison 4: Kernel Approximation ═══ -->
-        <section class="card p-5">
-            <div class="flex items-center gap-3 mb-4">
-                <span class="px-2 py-1 bg-amber-500/20 text-amber-400 text-[10px] font-semibold rounded">KERNEL APPROX</span>
-                <h3 class="text-sm font-semibold">RFF-SVM (CUDA) vs Exact Kernel (Thread)</h3>
+        <!-- ═══ Comparison 4: Kernel Approx ═══ -->
+        <section class="card p-8">
+            <div class="flex items-center gap-3 mb-6">
+                <span class="px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-mono tracking-widest uppercase rounded flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Algorithms
+                </span>
+                <h3 class="font-display text-lg font-medium text-white">RFF-SVM (CUDA) vs Exact Kernel (Thread)</h3>
             </div>
-            <p class="text-xs text-dim mb-4">Trade-off between Random Fourier Features approximation and exact kernel computation.</p>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Accuracy vs Speed Trade-off</h4>
-                    <div id="cmp-kernel-metrics" class="space-y-2"></div>
+                    <p class="text-[13px] leading-relaxed text-dim mb-6">Evaluating the accuracy-performance trade-off when using Random Fourier Features to approximate the RBF kernel in linear time.</p>
+                    <div id="cmp-kernel-metrics" class="space-y-1"></div>
                 </div>
                 <div>
-                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Comparison</h4>
-                    <div class="h-40"><canvas id="chart-cmp-kernel"></canvas></div>
+                    <h4 class="text-[11px] font-medium text-dim mb-4 uppercase tracking-widest text-center">Accuracy Deviation</h4>
+                    <div class="h-56"><canvas id="chart-cmp-kernel"></canvas></div>
                 </div>
             </div>
         </section>
 
         <!-- Summary Table -->
-        <section class="card p-5">
-            <h3 class="section-title mb-4">Summary Comparison Table</h3>
+        <section class="card overflow-hidden">
+            <h3 class="font-display text-lg font-medium px-6 py-5 text-white border-b border-white/5">Executive Summary</h3>
             <div class="overflow-x-auto">
                 <table class="w-full text-xs">
                     <thead>
-                        <tr class="border-b border-zinc-800 text-left">
-                            <th class="th-cell">Comparison</th>
-                            <th class="th-cell">Models</th>
-                            <th class="th-cell">Winner</th>
-                            <th class="th-cell">Key Finding</th>
+                        <tr class="text-left bg-white/[0.02]">
+                            <th class="th-cell font-display tracking-wider">Domain</th>
+                            <th class="th-cell font-display tracking-wider">Contenders</th>
+                            <th class="th-cell font-display tracking-wider">Winner</th>
+                            <th class="th-cell font-display tracking-wider">Insights</th>
                         </tr>
                     </thead>
                     <tbody id="summary-tbody"></tbody>
@@ -227,100 +242,113 @@
 
         <!-- Per-class detail tables -->
         <section>
-            <h3 class="section-title mb-4">Per-Class Metrics (from detailed logs)</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="analysis-tables"></div>
+            <h3 class="section-title mb-6">Granular Classification Metrics</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="analysis-tables"></div>
         </section>
     </div>
 
     <!-- ═══════════ Predict Tab ═══════════ -->
-    <div class="tab-content max-w-6xl mx-auto px-6 py-8 space-y-8" id="tab-predict">
+    <div class="tab-content max-w-7xl mx-auto px-6 py-10 space-y-10" id="tab-predict">
 
         <div>
-            <h2 class="text-xl font-bold tracking-tight">Predict</h2>
-            <p class="text-sm text-dim mt-1">Run network traffic samples through trained SVM models</p>
+            <h2 class="font-display text-3xl font-semibold tracking-tight text-white mb-2">Live Inference</h2>
+            <p class="text-sm text-subtle">Process network flows through HPC-trained SVM models in real-time.</p>
         </div>
 
         <!-- Model Selector -->
         <section>
-            <h3 class="section-title">Select Model</h3>
-            <div class="flex flex-wrap gap-2" id="model-selector">
-                <!-- Populated by JS -->
-            </div>
+            <h3 class="section-title mb-4">Engage Model Architecture</h3>
+            <div class="flex flex-wrap gap-3" id="model-selector"></div>
         </section>
 
         <!-- Model Info -->
-        <div class="card p-5" id="predict-model-info">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                <span class="text-sm font-medium">Loading model info...</span>
-            </div>
+        <div class="card p-6 border-l-4 border-l-indigo-500" id="predict-model-info">
+            <!-- Populated by JS -->
         </div>
 
-        <!-- Two modes -->
+        <!-- Input Modes -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
             <!-- Manual Input -->
-            <div class="card p-5">
-                <h3 class="section-title mb-4">Manual Input</h3>
-                <p class="text-xs text-dim mb-3">Paste 52 comma-separated feature values (one sample per line)</p>
-                <textarea id="manual-input" class="w-full bg-surface-2 border border-zinc-700 rounded-lg px-4 py-3 text-xs font-mono text-zinc-300 focus:outline-none focus:border-indigo-500 transition-colors resize-y" rows="6" placeholder="0.123, 0.456, 0.789, ... (52 values)&#10;0.111, 0.222, 0.333, ..."></textarea>
-                <div class="flex gap-2 mt-3">
-                    <button id="btn-predict-manual" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg transition-colors">
-                        Predict
+            <div class="card p-6 flex flex-col">
+                <h3 class="font-display text-lg font-medium text-white mb-2">Direct Feature Injection</h3>
+                <p class="text-[13px] text-dim mb-4">Input 52 normalized comma-separated features (one flow per line).</p>
+                
+                <textarea id="manual-input" style="outline:none;" class="flex-grow w-full bg-black/40 border border-white/10 rounded-xl px-4 py-4 text-xs font-mono text-zinc-300 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 shadow-inner resize-y transition-all" rows="7" placeholder="# Example Flow&#10;0.123, 0.456, 0.789, ..."></textarea>
+                
+                <div class="flex flex-wrap gap-3 mt-5">
+                    <button id="btn-predict-manual" class="flex-1 min-w-[120px] px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 text-white font-display text-sm font-semibold rounded-xl shadow-lg shadow-indigo-500/20 transition-all transform hover:-translate-y-0.5 active:translate-y-0">
+                        Execute Inference
                     </button>
-                    <button id="btn-load-sample" class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white text-xs font-medium rounded-lg transition-colors">
-                        Load Sample (cycle)
+                    <button id="btn-load-sample" class="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 font-display text-xs font-medium rounded-xl transition-colors">
+                        Cycle Normal
                     </button>
-                    <button id="btn-load-attacks" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-lg transition-colors">
+                    <button id="btn-load-attacks" class="px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 font-display text-xs font-medium rounded-xl transition-colors">
                         Load Attacks
                     </button>
                 </div>
             </div>
 
             <!-- CSV Upload -->
-            <div class="card p-5">
-                <h3 class="section-title mb-4">CSV Upload</h3>
-                <p class="text-xs text-dim mb-3">Upload a CSV file with 52 features per row</p>
-                <div class="border-2 border-dashed border-zinc-700 rounded-lg p-8 text-center hover:border-indigo-500/50 transition-colors cursor-pointer" id="drop-zone">
-                    <svg class="w-8 h-8 text-dim mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 16v-8m0 0l-3 3m3-3l3 3M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5"/></svg>
-                    <p class="text-sm text-dim">Drop CSV here or click to browse</p>
+            <div class="card p-6 flex flex-col">
+                <h3 class="font-display text-lg font-medium text-white mb-2">Batch Processing</h3>
+                <p class="text-[13px] text-dim mb-4">Upload a dataset (.csv) for rapid bulk inference evaluation.</p>
+                
+                <div class="flex-grow border-2 border-dashed border-white/10 rounded-xl p-10 flex flex-col items-center justify-center text-center hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all cursor-pointer group" id="drop-zone">
+                    <div class="p-4 rounded-full bg-white/5 group-hover:bg-indigo-500/20 group-hover:text-indigo-400 text-zinc-500 mb-4 transition-colors">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"/></svg>
+                    </div>
+                    <span class="font-display text-sm text-zinc-300 font-medium tracking-wide">Drop CSV payload here or click to browse</span>
+                    <span class="text-xs text-dim mt-2 max-w-xs">Supports batch processing of unlimited network traffic snapshots.</span>
                     <input type="file" id="csv-upload" class="hidden" accept=".csv,.txt">
                 </div>
-                <button id="btn-predict-csv" class="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled>
-                    Predict CSV
-                </button>
-                <span class="text-xs text-dim ml-2" id="csv-filename"></span>
+                
+                <div class="flex items-center gap-3 mt-5">
+                    <button id="btn-predict-csv" class="flex-1 px-5 py-2.5 bg-gradient-to-r from-violet-500 to-fuchsia-600 border-0 hover:from-violet-400 hover:to-fuchsia-500 text-white font-display text-sm font-semibold rounded-xl transition-all shadow-lg shadow-fuchsia-500/20 disabled:opacity-40 disabled:cursor-not-allowed transform hover:-translate-y-0.5 disabled:transform-none" disabled>
+                        Process Batch Payload
+                    </button>
+                    <span class="text-[11px] font-mono text-indigo-300 truncate max-w-[150px]" id="csv-filename"></span>
+                </div>
             </div>
         </div>
 
         <!-- Results -->
-        <section class="card p-5 hidden" id="predict-results">
-            <h3 class="section-title mb-4">Prediction Results</h3>
+        <section class="card p-6 hidden animate-[fadeIn_0.5s_ease-out_forwards]" id="predict-results">
+            <h3 class="section-title mb-6" id="predict-results-header">Inference Summary</h3>
 
             <!-- Summary -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="predict-summary"></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="predict-summary"></div>
 
             <!-- Results table -->
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="border-b border-zinc-800 text-left">
-                            <th class="th-cell">#</th>
-                            <th class="th-cell">Predicted Class</th>
-                            <th class="th-cell">Confidence</th>
-                            <th class="th-cell">Votes</th>
-                        </tr>
-                    </thead>
-                    <tbody id="predict-results-tbody"></tbody>
-                </table>
+            <div class="border border-white/5 rounded-xl overflow-hidden">
+                <div class="overflow-x-auto bg-black/20">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-white/5 text-left bg-white/[0.03]">
+                                <th class="th-cell w-16">No.</th>
+                                <th class="th-cell">Classification</th>
+                                <th class="th-cell">Confidence</th>
+                                <th class="th-cell">SV / Class Votes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="predict-results-tbody" class="divide-y divide-white/5"></tbody>
+                    </table>
+                </div>
             </div>
         </section>
     </div>
 
     <!-- Footer -->
-    <footer class="border-t border-zinc-800/60 mt-12">
-        <div class="max-w-6xl mx-auto px-6 py-6 text-xs text-dim text-center">
-            HPC Term Project — Network Intrusion Detection System • SVM + DBSCAN Pipeline
+    <footer class="border-t border-white/5 mt-16 bg-black/20 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-6 py-8 flex flex-col md:flex-row justify-between items-center gap-4">
+            <p class="text-xs text-dim font-display tracking-wide">
+                <span class="text-zinc-400 font-medium">HPC Term Project</span> • Secure Architecture for Network Intrusion Detection
+            </p>
+            <div class="flex gap-4">
+                <span class="px-2 py-1 bg-white/5 rounded text-[10px] text-zinc-500 font-mono">PySpark</span>
+                <span class="px-2 py-1 bg-white/5 rounded text-[10px] text-zinc-500 font-mono">CUDA 12</span>
+                <span class="px-2 py-1 bg-white/5 rounded text-[10px] text-zinc-500 font-mono">MPI</span>
+            </div>
         </div>
     </footer>
 
