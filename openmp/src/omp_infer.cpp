@@ -1,15 +1,13 @@
 /*
- * omp_infer.cpp  —  OpenMP Hybrid SVM + DBSCAN inference pipeline
+ * omp_infer.cpp  —  OpenMP Hybrid SVM (One-vs-One) + DBSCAN inference pipeline
  *
  * Purpose:
- *   Load the SVM model produced by omp_train (or mpi_train — model.bin format
- *   is identical), run parallel inference on CICIDS2017 test data, then apply
- *   CPU DBSCAN re-classification for low-confidence and holdout samples.
- *   Drop-in replacement for mpi_infer.cpp: produces the same output files
- *   with the same CSV column layout so results are directly comparable.
+ *   Load the SVM model produced by omp_train (OvO format: K=N_PAIRS=6),
+ *   run parallel inference on CICIDS2017 test data using OvO voting, then
+ *   apply CPU DBSCAN re-classification for low-confidence and holdout samples.
  *
  * Two models used by this pipeline:
- *   model.bin        — SVM weights (from omp_train or mpi_train)
+ *   model.bin        — SVM weights (from omp_train, OvO: K=6 pair classifiers)
  *   dbscan_model.bin — DBSCAN cluster centroids + labels (produced here)
  *
  * Algorithm summary:
@@ -17,10 +15,11 @@
  *   ── PHASE 1  SVM INFERENCE ──────────────────────────────────────────
  *   1. Main thread loads model.bin, test_data.csv, test_labels.csv.
  *   2. #pragma omp parallel for schedule(static): distribute all N_test
- *      rows across threads.  Each thread computes:
- *        score[i][k] = W[k]·x[i] + b[k]  for k in {0..3}
- *        conf[i]     = max_k score[i][k]  (winning class raw score)
- *        pred[i]     = argmax_k score[i][k]
+ *      rows across threads.  Each thread runs OvO voting:
+ *        for each pair p in {0..5}: score = W[p]·x + b[p]
+ *          if score >= 0: votes[PAIR_I[p]]++  else  votes[PAIR_J[p]]++
+ *        pred[i]  = argmax votes[]
+ *        conf[i]  = votes[pred[i]] / (N_CLASSES-1)   range [0,1]
  *   3. Main thread evaluates SVM-only metrics; writes svm_predictions.csv.
  *
  *   ── PHASE 2  DBSCAN CLUSTERING ─────────────────────────────────────
@@ -34,7 +33,11 @@
  *                                          N_MAX_UNCERTAIN; slots nh..nh+nu-1)
  *        conf < CONF_THRESHOLD AND
  *          pred == NORMAL_INT            → direct Normal (skip DBSCAN)
- *   5. Run O(n²) CPU DBSCAN in 4-D SVM score space on the pool.
+ *   5. Run O(n²) CPU DBSCAN in 4-D vote-count space on the pool.
+ *      Vote dims are integers in {0..3} summing to N_PAIRS=6.  Min nonzero
+ *      inter-point dist² = 2.0 (differ by ±1 in two dims); EPS=1.5 captures
+ *      nearest neighbours.  NORMAL_PROX_THRESH=1.5 restricts the Normal label
+ *      to cluster centroids genuinely close to the Normal class centroid.
  *   6. Cluster labelling:
  *        has holdout anchors  → majority-vote original class ID
  *        no anchor, centroid argmax=Normal AND dist<NORMAL_PROX_THRESH
@@ -68,7 +71,7 @@
  *   int32   min_samples
  *   float32 normal_prox_thresh
  *   For each cluster c in [0, n_clusters):
- *     float32[4]  centroid  (mean 4-D SVM score vector)
+ *     float32[4]  centroid  (mean 4-D vote-count vector)
  *     int32       label     (original class ID; PRED_UNKNOWN=-2)
  */
 
@@ -78,6 +81,7 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <fstream>
 #include <numeric>
@@ -88,17 +92,55 @@
 #include <vector>
 
 // ---------------------------------------------------------------------------
+// Dual-output logger: writes to both stdout and a run log file
+// ---------------------------------------------------------------------------
+static FILE* g_log_fp = nullptr;
+
+static void log_open(const char* path) {
+    g_log_fp = fopen(path, "w");
+    if (!g_log_fp) fprintf(stderr, "Warning: cannot open run log %s\n", path);
+}
+
+static void log_close() {
+    if (g_log_fp) { fflush(g_log_fp); fclose(g_log_fp); g_log_fp = nullptr; }
+}
+
+static void lprintf(const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt); vprintf(fmt, ap); va_end(ap);
+    if (g_log_fp) {
+        va_list ap2;
+        va_start(ap2, fmt); vfprintf(g_log_fp, fmt, ap2); va_end(ap2);
+        fflush(g_log_fp);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Configuration — keep identical to mpi_infer.cpp
 // ---------------------------------------------------------------------------
 static constexpr int   N_FEATURES         = 52;
-static constexpr int   N_CLASSES          = 4;    // trained classifiers
+static constexpr int   N_CLASSES          = 4;    // trained class count
+static constexpr int   N_PAIRS            = N_CLASSES * (N_CLASSES - 1) / 2; // 6
+static constexpr int   PAIR_I[N_PAIRS]    = {0, 0, 0, 1, 1, 2};
+static constexpr int   PAIR_J[N_PAIRS]    = {1, 2, 3, 2, 3, 3};
 static constexpr int   N_ALL              = 7;    // original class count
 
-static constexpr float CONF_THRESHOLD     = 0.5f;
+// CONF_THRESHOLD: conf_all = votes[best_k]/(N_CLASSES-1) in [0,1].
+// In OvO with N_CLASSES=4, each class competes in exactly 3 pairs, so
+// the minimum possible winning conf = 2/3 ≈ 0.667 (wins exactly 2 of 3).
+// Setting to 1.0 routes all 2-of-3 winners (conf≈0.667) to DBSCAN for
+// rechecking; only 3-of-3 winners (conf=1.0) bypass DBSCAN as confident.
+static constexpr float CONF_THRESHOLD     = 0.67;
 static constexpr int   N_MAX_UNCERTAIN    = 110000;
-static constexpr float EPS               = 0.148f;
-static constexpr int   MIN_SAMPLES        = 8;
-static constexpr float NORMAL_PROX_THRESH = 7.0f;
+// EPS for DBSCAN in 4-D OvO vote-count space.  Vote dims are integers with
+// each class participating in N_CLASSES-1=3 pairs (so votes[k] ∈ {0..3})
+// and total votes summing to N_PAIRS=6.  Two distinct valid vote vectors
+// must differ in at least 2 dimensions (sum is fixed), so the minimum
+// non-zero squared distance is 2.0 (±1 in two dims).
+// EPS=1.5 → eps²=2.25 captures nearest neighbours that differ by 1 step.
+static constexpr float EPS               = 1.1f;
+static constexpr int   MIN_SAMPLES        = 5;
+static constexpr float NORMAL_PROX_THRESH = 1.5f;
 
 static constexpr int ORIG2INT[N_ALL]     = { -1, -1,  0,  1,  2,  3, -1 };
 static constexpr int INT2ORIG[N_CLASSES] = {  2,  3,  4,  5 };
@@ -121,6 +163,7 @@ static const char* SVM_PRED_OUT   = "../log/svm_predictions.csv";
 static const char* DBSCAN_MDL_OUT = "../log/dbscan_model.bin";
 static const char* PRED_OUT       = "../log/hybrid_predictions.csv";
 static const char* LOG_OUT        = "../log/hybrid_log.csv";
+static const char* RUN_LOG        = "../log/omp_infer_run.log";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,7 +178,7 @@ static std::string ts() {
 
 static inline bool is_holdout(int orig) { return orig == 0 || orig == 1 || orig == 6; }
 
-// Squared Euclidean distance between two 4-D SVM score vectors
+// Squared Euclidean distance between two 4-D vectors (vote-count space)
 static inline float dist4_sq(const float* a, const float* b) {
     float d0 = a[0]-b[0], d1 = a[1]-b[1], d2 = a[2]-b[2], d3 = a[3]-b[3];
     return d0*d0 + d1*d1 + d2*d2 + d3*d3;
@@ -179,7 +222,10 @@ static std::vector<int> load_csv_int(const char* path) {
 // ---------------------------------------------------------------------------
 // SVM model loader
 // ---------------------------------------------------------------------------
-struct SVMModel { int K, F; std::vector<float> W, b; };
+struct SVMModel {
+    int K, F;                        // K=N_PAIRS, F=N_FEATURES
+    std::vector<float> W, b;         // SVM weights: W[K×F], b[K]
+};
 
 static SVMModel load_svm_model(const char* path) {
     std::ifstream f(path, std::ios::binary);
@@ -199,7 +245,7 @@ static SVMModel load_svm_model(const char* path) {
 }
 
 // ---------------------------------------------------------------------------
-// CPU O(n²) DBSCAN on n_db points in 4-D SVM score space
+// CPU O(n²) DBSCAN on n_db points in 4-D vote-count space
 //   Returns cluster_id[n_db] (-1 = noise).  n_clusters returned by value.
 //
 //   Parallelisation strategy:
@@ -218,7 +264,7 @@ static std::vector<int> run_dbscan(const std::vector<float>& X_db, int n_db,
 
     // Pass 1: count neighbours (self included → count >= min_samples = core)
     //   Each row i is independent: schedule(static) gives equal-load chunks.
-    printf("[%s]   DBSCAN pass 1: counting neighbours (n=%d, eps=%.5f) ...\n",
+    lprintf("[%s]   DBSCAN pass 1: counting neighbours (n=%d, eps=%.4f) ...\n",
            ts().c_str(), n_db, (double)eps);
     std::vector<int> nbr_count(n_db, 0);
 #pragma omp parallel for schedule(static)
@@ -238,7 +284,7 @@ static std::vector<int> run_dbscan(const std::vector<float>& X_db, int n_db,
     std::vector<int> row_ptr(n_db + 1, 0);
     for (int i = 0; i < n_db; ++i) row_ptr[i + 1] = row_ptr[i] + nbr_count[i];
     long total_edges = row_ptr[n_db];
-    printf("[%s]   DBSCAN pass 2: filling adjacency (total edges=%ld, avg=%.1f) ...\n",
+    lprintf("[%s]   DBSCAN pass 2: filling adjacency (total edges=%ld, avg=%.1f) ...\n",
            ts().c_str(), total_edges, (double)total_edges / n_db);
 
     //   Pass 2 correctness: thread t writes exclusively to the range
@@ -277,7 +323,7 @@ static std::vector<int> run_dbscan(const std::vector<float>& X_db, int n_db,
 
     int n_noise = 0;
     for (int i = 0; i < n_db; ++i) if (labels[i] < 0) ++n_noise;
-    printf("[%s]   DBSCAN done: clusters=%d  noise=%d (%.1f%%)\n",
+    lprintf("[%s]   DBSCAN done: clusters=%d  noise=%d (%.1f%%)\n",
            ts().c_str(), nc, n_noise, 100.0 * n_noise / n_db);
 
     n_clusters_out = nc;
@@ -291,72 +337,86 @@ int main(int /*argc*/, char** /*argv*/) {
 
     int N_THREADS = omp_get_max_threads();
     omp_set_num_threads(N_THREADS);
-    printf("OpenMP threads: %d\n", N_THREADS);
+
+    log_open(RUN_LOG);
+    lprintf("OpenMP threads: %d\n", N_THREADS);
+    double t_total_start = omp_get_wtime();
 
     // ══════════════════════════════════════════════════════════════════════
     // PHASE 1 — SVM INFERENCE  (parallel across all threads)
     //
-    //   Unlike the MPI version (scatter/gather), OpenMP simply distributes
-    //   the row index range [0, N_test) with parallel for schedule(static).
-    //   Each thread independently computes the 4-D score vector, confidence,
-    //   and argmax prediction for its assigned rows.
+    //   OvO voting: for each of the N_PAIRS=6 binary classifiers, compute
+    //   score = W[p]·x + b[p].  The class with the most votes is the
+    //   prediction; confidence = max_votes / (N_CLASSES-1), range [0,1].
     // ══════════════════════════════════════════════════════════════════════
 
-    printf("[%s] ════════════════════════════════════════════════════\n"
-           "[%s] PHASE 1 — SVM INFERENCE  (loading model.bin)\n"
-           "[%s] ════════════════════════════════════════════════════\n",
-           ts().c_str(), ts().c_str(), ts().c_str());
+    lprintf("[%s] ════════════════════════════════════════════════════\n"
+            "[%s] PHASE 1 — SVM INFERENCE (One-vs-One, loading model.bin)\n"
+            "[%s] ════════════════════════════════════════════════════\n",
+            ts().c_str(), ts().c_str(), ts().c_str());
 
-    // Step 1a: Load SVM model
-    printf("[%s] Loading SVM model: %s\n", ts().c_str(), MODEL_IN);
+    // Step 1a: Load SVM model (OvO: K=N_PAIRS=6)
+    lprintf("[%s] Loading SVM model: %s\n", ts().c_str(), MODEL_IN);
     SVMModel mdl = load_svm_model(MODEL_IN);
-    assert(mdl.K == N_CLASSES && mdl.F == N_FEATURES);
+    assert(mdl.K == N_PAIRS && mdl.F == N_FEATURES);
+    lprintf("[%s] Model loaded: K=%d F=%d\n",
+            ts().c_str(), mdl.K, mdl.F);
     const std::vector<float>& W_svm = mdl.W;
     const std::vector<float>& b_svm = mdl.b;
 
     // Step 1b: Load test data
-    printf("[%s] Loading test data: %s\n", ts().c_str(), TEST_DATA_CSV);
+    lprintf("[%s] Loading test data: %s\n", ts().c_str(), TEST_DATA_CSV);
     std::vector<float> X_test = load_csv_float(TEST_DATA_CSV);
     std::vector<int>   y_test = load_csv_int(TEST_LABEL_CSV);
     int N_test = (int)y_test.size();
     assert(X_test.size() == (size_t)N_test * N_FEATURES);
-    printf("[%s] N_test=%d\n", ts().c_str(), N_test);
+    lprintf("[%s] N_test=%d\n", ts().c_str(), N_test);
 
     // Allocate output arrays (written in parallel)
+    // scores_all stores vote counts (0.0-3.0 per class) in N_CLASSES=4 dims.
+    // DBSCAN operates in this 4-D vote space.
     std::vector<float> scores_all((size_t)N_test * N_CLASSES, 0.f);
     std::vector<float> conf_all  (N_test, 0.f);
     std::vector<int>   pred_all  (N_test, 0);
 
-    // Step 1c: Parallel SVM score computation
-    //   score[i][k] = W_svm[k]·x[i] + b_svm[k]
-    //   conf[i]     = max_k score[i][k]  (raw decision value of winning class)
-    //   pred[i]     = argmax_k score[i][k]
+    // Step 1c: Parallel OvO SVM inference
+    //   For each sample: run N_PAIRS=6 binary classifiers, tally votes per
+    //   class, take argmax.  conf = max_votes / (N_CLASSES-1) in [0,1].
     double t0_phase1 = omp_get_wtime();
 
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < N_test; ++i) {
-        const float* x     = X_test.data() + (size_t)i * N_FEATURES;
-        int   best_k = 0;
-        float best_s = b_svm[0];
-        for (int f = 0; f < N_FEATURES; ++f) best_s += W_svm[f] * x[f];
-        scores_all[(size_t)i * N_CLASSES + 0] = best_s;
-
-        for (int k = 1; k < N_CLASSES; ++k) {
-            float s = b_svm[k];
+        const float* x = X_test.data() + (size_t)i * N_FEATURES;
+        // OvO voting: tally integer votes AND accumulate |score| per class
+        // for tie-breaking when two classes share the maximum vote count.
+        int   votes[N_CLASSES]  = {};
+        float margin[N_CLASSES] = {};   // sum of |score| for won pairs
+        for (int p = 0; p < N_PAIRS; ++p) {
+            float s = b_svm[p];
             for (int f = 0; f < N_FEATURES; ++f)
-                s += W_svm[k * N_FEATURES + f] * x[f];
-            scores_all[(size_t)i * N_CLASSES + k] = s;
-            if (s > best_s) { best_s = s; best_k = k; }
+                s += W_svm[p * N_FEATURES + f] * x[f];
+            if (s >= 0.f) { votes[PAIR_I[p]]++;  margin[PAIR_I[p]] += s;  }
+            else           { votes[PAIR_J[p]]++;  margin[PAIR_J[p]] -= s;  }
         }
-        conf_all[i] = best_s;
+        // Argmax: primary key = vote count; secondary = accumulated |score|
+        int best_k = 0;
+        for (int k = 1; k < N_CLASSES; ++k) {
+            if (votes[k] > votes[best_k] ||
+                (votes[k] == votes[best_k] && margin[k] > margin[best_k]))
+                best_k = k;
+        }
+        // Store integer vote counts as 4-D DBSCAN features
+        for (int k = 0; k < N_CLASSES; ++k)
+            scores_all[(size_t)i * N_CLASSES + k] = (float)votes[k];
+        conf_all[i] = (float)votes[best_k] / (N_CLASSES - 1);  // max_votes / 3, range [0,1]
         pred_all[i] = best_k;
     }
 
     double t1_phase1 = omp_get_wtime();
-    printf("[%s] Phase 1 (SVM inference) time: %.3fs\n",
-           ts().c_str(), t1_phase1 - t0_phase1);
-    printf("[%s] ─── SVM inference complete for all %d test samples.\n",
-           ts().c_str(), N_test);
+    lprintf("[%s] Phase 1 (SVM OvO inference) time: %.3fs\n",
+            ts().c_str(), t1_phase1 - t0_phase1);
+    lprintf("[%s] ─── SVM inference complete for all %d test samples.\n",
+            ts().c_str(), N_test);
 
     // Step 1d: SVM-only evaluation (mirror of mpi_infer rank-0 Step 1f)
     {
@@ -368,9 +428,9 @@ int main(int /*argc*/, char** /*argv*/) {
             int pi = pred_all[i];
             if (pi >= 0 && pi < N_CLASSES) cm_svm[ti][pi]++;
         }
-        printf("\n  SVM-only per-class metrics (trained classes, all non-holdout):\n");
-        printf("  %-16s  %8s  %8s  %8s  %8s\n",
-               "Class", "Prec", "Recall", "F1", "Support");
+        lprintf("\n  SVM-only per-class metrics (trained classes, all non-holdout):\n");
+        lprintf("  %-16s  %8s  %8s  %8s  %8s\n",
+                "Class", "Prec", "Recall", "F1", "Support");
         float mf1_svm = 0.f;
         for (int k = 0; k < N_CLASSES; ++k) {
             long tp = cm_svm[k][k], fp2 = 0, fn = 0;
@@ -382,13 +442,13 @@ int main(int /*argc*/, char** /*argv*/) {
             float r  = (tp + fn  > 0) ? (float)tp / (tp + fn)  : 0.f;
             float f1 = (p + r > 1e-9f) ? 2.f * p * r / (p + r) : 0.f;
             mf1_svm += f1;
-            printf("  %-16s  %8.4f  %8.4f  %8.4f  %8ld\n",
-                   CLASS_NAMES[INT2ORIG[k]], (double)p, (double)r, (double)f1,
-                   tp + fn);
+            lprintf("  %-16s  %8.4f  %8.4f  %8.4f  %8ld\n",
+                    CLASS_NAMES[INT2ORIG[k]], (double)p, (double)r, (double)f1,
+                    tp + fn);
         }
         mf1_svm /= N_CLASSES;
-        printf("  %-16s                          %8.4f  (SVM-only)\n",
-               "macro_F1", (double)mf1_svm);
+        lprintf("  %-16s                          %8.4f  (SVM-only OvO)\n",
+                "macro_F1", (double)mf1_svm);
     }
 
     // Step 1e: Save svm_predictions.csv — same format as mpi_infer
@@ -404,7 +464,7 @@ int main(int /*argc*/, char** /*argv*/) {
             sf << y_test[i] << "," << svm_p << "\n";
         }
         sf.close();
-        printf("[%s] SVM-only predictions -> %s\n", ts().c_str(), SVM_PRED_OUT);
+        lprintf("[%s] SVM-only predictions -> %s\n", ts().c_str(), SVM_PRED_OUT);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -413,12 +473,15 @@ int main(int /*argc*/, char** /*argv*/) {
     //   OpenMP speedup is in Phases 1 & 3.  DBSCAN is O(n²) over a pool
     //   that is typically <200 k points; parallelising the BFS expansion
     //   introduces thread-safety complexity with no guaranteed gain here.
+    //
+    //   DBSCAN operates in 4-D vote-count space.  Each dimension holds the
+    //   vote count for one class (integers 0–3, summing to N_PAIRS=6).
     // ══════════════════════════════════════════════════════════════════════
 
-    printf("\n[%s] ════════════════════════════════════════════════════\n"
-           "[%s] PHASE 2 — DBSCAN CLUSTERING\n"
-           "[%s] ════════════════════════════════════════════════════\n",
-           ts().c_str(), ts().c_str(), ts().c_str());
+    lprintf("\n[%s] ════════════════════════════════════════════════════\n"
+            "[%s] PHASE 2 — DBSCAN CLUSTERING (4-D vote space)\n"
+            "[%s] ════════════════════════════════════════════════════\n",
+            ts().c_str(), ts().c_str(), ts().c_str());
 
     double t0_phase2 = omp_get_wtime();
 
@@ -450,16 +513,16 @@ int main(int /*argc*/, char** /*argv*/) {
     const int n_unc_normal = (int)unc_normal_idx.size();
     const int n_unc_attack = n_full_uncertain - n_unc_normal;
 
-    printf("  Holdout samples  (anchors):          %d\n", nh);
-    printf("  Confident samples (SVM final):        %d\n", n_confident);
-    printf("  Uncertain: Normal-predicted (direct): %d  (SVM argmax=Normal, skip DBSCAN)\n",
-           n_unc_normal);
-    printf("  Uncertain: attack-predicted (DBSCAN): %d (capped at %d; "
-           "%d overflow -> PRED_NOVEL)\n",
-           n_unc_attack, N_MAX_UNCERTAIN, n_unc_attack - nu);
-    printf("  DBSCAN pool total:                    %d\n", n_db);
+    lprintf("  Holdout samples  (anchors):          %d\n", nh);
+    lprintf("  Confident samples (SVM final):        %d\n", n_confident);
+    lprintf("  Uncertain: Normal-predicted (direct): %d  (SVM argmax=Normal, skip DBSCAN)\n",
+            n_unc_normal);
+    lprintf("  Uncertain: attack-predicted (DBSCAN): %d (capped at %d; "
+            "%d overflow -> PRED_NOVEL)\n",
+            n_unc_attack, N_MAX_UNCERTAIN, n_unc_attack - nu);
+    lprintf("  DBSCAN pool total:                    %d\n", n_db);
 
-    // Step 2b: Build X_db — each row is the 4-D SVM score vector
+    // Step 2b: Build X_db — each row is the 4-D vote-count vector
     //   Holdout anchors: pool [0, nh);  Uncertain attacks: pool [nh, nh+nu)
     std::vector<float> X_db((size_t)n_db * 4);
     for (int i = 0; i < nh; ++i)
@@ -472,7 +535,7 @@ int main(int /*argc*/, char** /*argv*/) {
     std::vector<int> ho_orig(nh);
     for (int i = 0; i < nh; ++i) ho_orig[i] = y_test[ho_idx[i]];
 
-    // Step 2c: Normal-class centroid in 4-D score space (reference point)
+    // Step 2c: Normal-class centroid in 4-D vote space (reference point)
     std::array<double, 4> nsum = {0.0, 0.0, 0.0, 0.0};
     int n_norm = 0;
     for (int i = 0; i < N_test; ++i) {
@@ -486,12 +549,12 @@ int main(int /*argc*/, char** /*argv*/) {
     if (n_norm > 0)
         for (int k = 0; k < 4; ++k)
             norm_ctr[k] = (float)(nsum[k] / n_norm);
-    printf("  Normal centroid (n=%d): [%.3f, %.3f, %.3f, %.3f]\n",
-           n_norm,
-           (double)norm_ctr[0], (double)norm_ctr[1],
-           (double)norm_ctr[2], (double)norm_ctr[3]);
+    lprintf("  Normal centroid (n=%d): [%.3f, %.3f, %.3f, %.3f]\n",
+            n_norm,
+            (double)norm_ctr[0], (double)norm_ctr[1],
+            (double)norm_ctr[2], (double)norm_ctr[3]);
 
-    // Step 2d: Run DBSCAN (serial)
+    // Step 2d: Run DBSCAN (serial BFS; pass 1 & 2 parallelised inside)
     int n_clusters = 0;
     std::vector<int> cluster_id = run_dbscan(X_db, n_db, EPS, MIN_SAMPLES,
                                               n_clusters);
@@ -547,8 +610,8 @@ int main(int /*argc*/, char** /*argv*/) {
             }
         }
     }
-    printf("  Cluster labelling: %d holdout-voted, %d reclassified Normal, "
-           "%d unknown anomaly\n", cnt_by_holdout, cnt_normal, cnt_unknown);
+    lprintf("  Cluster labelling: %d holdout-voted, %d reclassified Normal, "
+            "%d unknown anomaly\n", cnt_by_holdout, cnt_normal, cnt_unknown);
 
     // Step 2g: Save dbscan_model.bin (same binary format as mpi_infer)
     {
@@ -572,13 +635,13 @@ int main(int /*argc*/, char** /*argv*/) {
             df.write(reinterpret_cast<const char*>(&cluster_class[c]), sizeof(int));
         }
         df.close();
-        printf("[%s] DBSCAN model saved -> %s  (%d clusters)\n",
-               ts().c_str(), DBSCAN_MDL_OUT, n_clusters);
+        lprintf("[%s] DBSCAN model saved -> %s  (%d clusters)\n",
+                ts().c_str(), DBSCAN_MDL_OUT, n_clusters);
     }
 
     double t1_phase2 = omp_get_wtime();
-    printf("[%s] Phase 2 (DBSCAN clustering) time: %.3fs\n",
-           ts().c_str(), t1_phase2 - t0_phase2);
+    lprintf("[%s] Phase 2 (DBSCAN clustering) time: %.3fs\n",
+            ts().c_str(), t1_phase2 - t0_phase2);
 
     // ══════════════════════════════════════════════════════════════════════
     // PHASE 3 — HYBRID COMBINATION  (parallel assignment + serial eval)
@@ -588,17 +651,17 @@ int main(int /*argc*/, char** /*argv*/) {
     //   prediction assignment with omp parallel for.
     // ══════════════════════════════════════════════════════════════════════
 
-    printf("\n[%s] ════════════════════════════════════════════════════\n"
-           "[%s] PHASE 3 — HYBRID COMBINATION  (SVM->DBSCAN fallback)\n"
-           "[%s] ════════════════════════════════════════════════════\n",
-           ts().c_str(), ts().c_str(), ts().c_str());
-    printf("  Logic: conf >= %.2f → SVM argmax;\n"
-           "         conf < %.2f AND pred=Normal → Normal direct (no DBSCAN);\n"
-           "         conf < %.2f AND pred=attack → DBSCAN cluster;\n"
-           "         holdout class → DBSCAN (novel detection).\n",
-           (double)CONF_THRESHOLD,
-           (double)CONF_THRESHOLD,
-           (double)CONF_THRESHOLD);
+    lprintf("\n[%s] ════════════════════════════════════════════════════\n"
+            "[%s] PHASE 3 — HYBRID COMBINATION  (SVM->DBSCAN fallback)\n"
+            "[%s] ════════════════════════════════════════════════════\n",
+            ts().c_str(), ts().c_str(), ts().c_str());
+    lprintf("  Logic: conf >= %.2f → SVM argmax;\n"
+            "         conf < %.2f AND pred=Normal → Normal direct (no DBSCAN);\n"
+            "         conf < %.2f AND pred=attack → DBSCAN cluster;\n"
+            "         holdout class → DBSCAN (novel detection).\n",
+            (double)CONF_THRESHOLD,
+            (double)CONF_THRESHOLD,
+            (double)CONF_THRESHOLD);
 
     double t0_phase3 = omp_get_wtime();
 
@@ -638,19 +701,27 @@ int main(int /*argc*/, char** /*argv*/) {
         int pool_pos = sample_to_pool[i];
         if (pool_pos >= 0) {
             int c = cluster_id[pool_pos];
-            final_pred[i] = (c < 0) ? PRED_NOVEL : cluster_class[c];
+            if (c < 0) {
+                final_pred[i] = PRED_NOVEL;
+            } else {
+                int cls = cluster_class[c];
+                // Unclaimed cluster: DBSCAN found no pattern → fall back to SVM argmax
+                final_pred[i] = (cls == PRED_UNKNOWN && !is_holdout(y_test[i]))
+                                ? INT2ORIG[pred_all[i]]
+                                : cls;
+}
         }
         // else: overflow uncertain attack (above cap) keeps PRED_NOVEL
     }
 
     double t1_phase3 = omp_get_wtime();
-    printf("[%s] Phase 3 (hybrid combination) time: %.3fs\n",
-           ts().c_str(), t1_phase3 - t0_phase3);
+    lprintf("[%s] Phase 3 (hybrid combination) time: %.3fs\n",
+            ts().c_str(), t1_phase3 - t0_phase3);
 
     // ── Evaluation (serial, identical layout to mpi_infer) ────────────────
 
-    printf("\n[%s] ── Evaluation ──────────────────────────────────────\n",
-           ts().c_str());
+    lprintf("\n[%s] ── Evaluation ──────────────────────────────────────\n",
+            ts().c_str());
 
     // (A) Per-class confusion matrix for the 4 trained classes
     long cm[N_CLASSES][N_CLASSES] = {};
@@ -660,13 +731,13 @@ int main(int /*argc*/, char** /*argv*/) {
         int ti = ORIG2INT[orig]; if (ti < 0) continue;   // holdout: skip
         int fp = final_pred[i];
         if (fp < 0 || fp >= N_ALL) continue;
-        int pi = ORIG2INT[fp];   if (pi < 0) continue;
+        int pi = ORIG2INT[fp]; if (pi < 0) continue;
         cm[ti][pi]++;
     }
 
-    printf("\n  Hybrid per-class metrics (trained classes, confident+DBSCAN):\n");
-    printf("  %-16s  %8s  %8s  %8s  %8s\n",
-           "Class", "Prec", "Recall", "F1", "Support");
+    lprintf("\n  Hybrid per-class metrics (trained classes, confident+DBSCAN):\n");
+    lprintf("  %-16s  %8s  %8s  %8s  %8s\n",
+            "Class", "Prec", "Recall", "F1", "Support");
     float mf1 = 0.f;
     for (int k = 0; k < N_CLASSES; ++k) {
         long tp = cm[k][k], fp2 = 0, fn = 0;
@@ -678,17 +749,41 @@ int main(int /*argc*/, char** /*argv*/) {
         float r  = (tp + fn  > 0) ? (float)tp / (tp + fn)  : 0.f;
         float f1 = (p + r > 1e-9f) ? 2.f * p * r / (p + r) : 0.f;
         mf1 += f1;
-        printf("  %-16s  %8.4f  %8.4f  %8.4f  %8ld\n",
-               CLASS_NAMES[INT2ORIG[k]],
-               (double)p, (double)r, (double)f1, tp + fn);
+        lprintf("  %-16s  %8.4f  %8.4f  %8.4f  %8ld\n",
+                CLASS_NAMES[INT2ORIG[k]],
+                (double)p, (double)r, (double)f1, tp + fn);
     }
     mf1 /= N_CLASSES;
-    printf("  %-16s                          %8.4f  (hybrid)\n",
-           "macro_F1", (double)mf1);
+    lprintf("  %-16s                          %8.4f  (hybrid)\n",
+            "macro_F1", (double)mf1);
+
+    // Overall accuracy from confusion matrix
+    long diag_sum = 0, total_sum = 0;
+    for (int k = 0; k < N_CLASSES; ++k) {
+        diag_sum += cm[k][k];
+        for (int j = 0; j < N_CLASSES; ++j) total_sum += cm[k][j];
+    }
+    float accuracy_hybrid = total_sum > 0 ? (float)diag_sum / (float)total_sum : 0.f;
+    lprintf("  %-16s                          %8.4f  (hybrid)\n",
+            "accuracy", (double)accuracy_hybrid);
+
+    // GFLOP estimates
+    //   SVM inference : N_test × N_PAIRS × N_FEATURES × 2 MACs
+    //   DBSCAN        : 2 passes × n_db² pairs × dist4_sq cost
+    //                   dist4_sq = 4 SUB + 4 MUL + 3 ADD = 11 FLOPs
+    long   svm_flops     = (long)N_test * (long)N_PAIRS * N_FEATURES * 2;
+    long   dbscan_flops  = 2LL * n_db * n_db * 11;
+    double phase1_s      = t1_phase1 - t0_phase1;
+    double phase2_s      = t1_phase2 - t0_phase2;
+    double phase3_s      = t1_phase3 - t0_phase3;
+    double predict_gflops = phase1_s > 0.0
+                            ? (double)svm_flops   / (phase1_s * 1e9) : 0.0;
+    double dbscan_gflops  = (phase2_s > 0.0 && n_db > 0)
+                            ? (double)dbscan_flops / (phase2_s * 1e9) : 0.0;
 
     // (B) Holdout detection via DBSCAN
-    printf("\n  Holdout class detection via DBSCAN:\n");
-    printf("  %-16s  %8s  %8s  %8s\n", "Class", "Total", "Correct", "Noise");
+    lprintf("\n  Holdout class detection via DBSCAN:\n");
+    lprintf("  %-16s  %8s  %8s  %8s\n", "Class", "Total", "Correct", "Noise");
     long ho_total_all = 0, ho_correct_all = 0;
     long bots_tot = 0, bots_cor = 0, bots_noi = 0;
     long bf_tot   = 0, bf_cor   = 0, bf_noi   = 0;
@@ -703,13 +798,13 @@ int main(int /*argc*/, char** /*argv*/) {
         else if (orig == 1) { ++bf_tot;   if(correct)++bf_cor;   if(noise)++bf_noi;   }
         else                { ++wa_tot;   if(correct)++wa_cor;   if(noise)++wa_noi;    }
     }
-    printf("  %-16s  %8ld  %8ld  %8ld\n", "Bots",       bots_tot, bots_cor, bots_noi);
-    printf("  %-16s  %8ld  %8ld  %8ld\n", "BruteForce", bf_tot,   bf_cor,   bf_noi);
-    printf("  %-16s  %8ld  %8ld  %8ld\n", "WebAttacks", wa_tot,   wa_cor,   wa_noi);
+    lprintf("  %-16s  %8ld  %8ld  %8ld\n", "Bots",       bots_tot, bots_cor, bots_noi);
+    lprintf("  %-16s  %8ld  %8ld  %8ld\n", "BruteForce", bf_tot,   bf_cor,   bf_noi);
+    lprintf("  %-16s  %8ld  %8ld  %8ld\n", "WebAttacks", wa_tot,   wa_cor,   wa_noi);
     float holdout_dr = ho_total_all > 0 ?
                        (float)ho_correct_all / ho_total_all : 0.f;
-    printf("  Holdout detection rate: %.4f  (%ld / %ld)\n",
-           (double)holdout_dr, ho_correct_all, ho_total_all);
+    lprintf("  Holdout detection rate: %.4f  (%ld / %ld)\n",
+            (double)holdout_dr, ho_correct_all, ho_total_all);
 
     // (C) Uncertain pool reclassification breakdown
     long ub = 0, uh = 0, un = 0, uu = 0;
@@ -720,13 +815,13 @@ int main(int /*argc*/, char** /*argv*/) {
         else if (p == NORMAL_ORIG_ID)          ++ub;
         else if (p == 0 || p == 1 || p == 6)  ++uh;
     }
-    printf("\n  Uncertain pool breakdown (%d total uncertain):\n", n_full_uncertain);
-    printf("  %-42s  %d\n",  "Direct Normal (SVM argmax=Normal, skip DBSCAN)", n_unc_normal);
-    printf("  %-42s  %d\n",  "Attack-class uncertain sent to DBSCAN",           nu);
-    printf("    %-40s  %ld\n", "-> Reclassified Normal (near-Normal cluster)",  ub);
-    printf("    %-40s  %ld\n", "-> Matched holdout pattern (Bots/BF/WebAtk)",   uh);
-    printf("    %-40s  %ld\n", "-> Novel attack (DBSCAN noise -1)",              un);
-    printf("    %-40s  %ld\n", "-> Unknown anomaly (unclaimed cluster)",         uu);
+    lprintf("\n  Uncertain pool breakdown (%d total uncertain):\n", n_full_uncertain);
+    lprintf("  %-42s  %d\n",  "Direct Normal (SVM argmax=Normal, skip DBSCAN)", n_unc_normal);
+    lprintf("  %-42s  %d\n",  "Attack-class uncertain sent to DBSCAN",           nu);
+    lprintf("    %-40s  %ld\n", "-> Reclassified Normal (near-Normal cluster)",  ub);
+    lprintf("    %-40s  %ld\n", "-> Matched holdout pattern (Bots/BF/WebAtk)",   uh);
+    lprintf("    %-40s  %ld\n", "-> Novel attack (DBSCAN noise -1)",              un);
+    lprintf("    %-40s  %ld\n", "-> Unknown anomaly (unclaimed cluster)",         uu);
 
     // ── Write hybrid_predictions.csv ──────────────────────────────────────
     {
@@ -738,7 +833,7 @@ int main(int /*argc*/, char** /*argv*/) {
         for (int i = 0; i < N_test; ++i)
             pf << y_test[i] << "," << final_pred[i] << "\n";
         pf.close();
-        printf("\n[%s] Hybrid predictions    -> %s\n", ts().c_str(), PRED_OUT);
+        lprintf("\n[%s] Hybrid predictions    -> %s\n", ts().c_str(), PRED_OUT);
     }
 
     // ── Write hybrid_log.csv ──────────────────────────────────────────────
@@ -770,15 +865,37 @@ int main(int /*argc*/, char** /*argv*/) {
         lf << "dbscan_reclass_holdout,"     << uh               << "\n";
         lf << "dbscan_novel,"               << un               << "\n";
         lf << "dbscan_unknown,"             << uu               << "\n";
+        {
+            double t_total_end = omp_get_wtime();
+            double total_s     = t_total_end - t_total_start;
+            lf << "accuracy_hybrid,"   << accuracy_hybrid          << "\n";
+            lf << "predict_ms,"        << (phase1_s * 1000.0)      << "\n";
+            lf << "dbscan_ms,"         << (phase2_s * 1000.0)      << "\n";
+            lf << "phase3_ms,"         << (phase3_s * 1000.0)      << "\n";
+            lf << "total_ms,"          << (total_s  * 1000.0)      << "\n";
+            lf << "phase1_time_s,"     << phase1_s                 << "\n";
+            lf << "phase2_time_s,"     << phase2_s                 << "\n";
+            lf << "phase3_time_s,"     << phase3_s                 << "\n";
+            lf << "total_time_s,"      << total_s                  << "\n";
+            lf << "predict_gflops,"    << predict_gflops            << "\n";
+            lf << "dbscan_gflops,"     << dbscan_gflops             << "\n";
+            lprintf("[%s] predict_ms=%.2f  dbscan_ms=%.2f  total_ms=%.2f"
+                    "  predict_GFLOPS=%.2f  dbscan_GFLOPS=%.2f\n",
+                    ts().c_str(),
+                    phase1_s * 1000.0, phase2_s * 1000.0, total_s * 1000.0,
+                    predict_gflops, dbscan_gflops);
+        }
         lf.close();
-        printf("[%s] Summary log           -> %s\n", ts().c_str(), LOG_OUT);
+        lprintf("[%s] Summary log           -> %s\n", ts().c_str(), LOG_OUT);
     }
 
-    printf("[%s] Done.  Output files:\n", ts().c_str());
-    printf("       SVM-only preds  : %s\n", SVM_PRED_OUT);
-    printf("       DBSCAN model    : %s\n", DBSCAN_MDL_OUT);
-    printf("       Hybrid preds    : %s\n", PRED_OUT);
-    printf("       Metrics log     : %s\n", LOG_OUT);
+    lprintf("[%s] Done.  Output files:\n", ts().c_str());
+    lprintf("       SVM-only preds  : %s\n", SVM_PRED_OUT);
+    lprintf("       DBSCAN model    : %s\n", DBSCAN_MDL_OUT);
+    lprintf("       Hybrid preds    : %s\n", PRED_OUT);
+    lprintf("       Metrics log     : %s\n", LOG_OUT);
+    lprintf("       Run log         : %s\n", RUN_LOG);
 
+    log_close();
     return 0;
 }

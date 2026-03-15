@@ -1,0 +1,41 @@
+Loading training data...
+Training samples after remap: 588717
+Loading test data...
+Test samples after remap: 752254
+Generating RFF parameters (N_RFF=1024, gamma=0.0100)...
+Steps per epoch: 71  (base_chunk=147179, BATCH_SIZE=2048)
+OvO classifiers: 6  (N_CLASSES=4, N_RFF=1024)
+  Saved model_best.bin
+Epoch   0 | lr=0.05000 | loss=0.5278 | acc=0.9246 | F1=0.8325 | train=106.0ms pred=512.0ms dbscan=4.5ms total=0.6s 67.41GFLOPS uncert=420 cls=7
+  Saved model_best.bin
+Epoch  10 | lr=0.04970 | loss=0.0381 | acc=0.9412 | F1=0.8758 | train=62.1ms pred=470.6ms dbscan=154.7ms total=1.9s 115.13GFLOPS uncert=3758 cls=22
+  Saved model_best.bin
+Epoch  20 | lr=0.04880 | loss=0.0307 | acc=0.9494 | F1=0.8903 | train=61.7ms pred=467.3ms dbscan=4.6ms total=3.0s 115.90GFLOPS uncert=561 cls=7
+  Saved model_best.bin
+Epoch  30 | lr=0.04733 | loss=0.0276 | acc=0.9520 | F1=0.8973 | train=61.3ms pred=467.4ms dbscan=7.6ms total=4.1s 116.60GFLOPS uncert=790 cls=11
+Epoch  40 | lr=0.04532 | loss=0.0277 | acc=0.9492 | F1=0.8899 | train=61.6ms pred=474.8ms dbscan=6.0ms total=5.2s 115.93GFLOPS uncert=382 cls=10
+Epoch  50 | lr=0.04282 | loss=0.0251 | acc=0.9498 | F1=0.8909 | train=61.1ms pred=471.2ms dbscan=2.3ms total=6.3s 116.92GFLOPS uncert=297 cls=8
+  Saved model_best.bin
+Epoch  60 | lr=0.03990 | loss=0.0211 | acc=0.9549 | F1=0.9039 | train=60.6ms pred=475.1ms dbscan=3.5ms total=7.4s 117.88GFLOPS uncert=436 cls=10
+Epoch  70 | lr=0.03662 | loss=0.0218 | acc=0.9521 | F1=0.8977 | train=64.7ms pred=472.4ms dbscan=2.3ms total=8.5s 110.46GFLOPS uncert=303 cls=8
+Epoch  80 | lr=0.03307 | loss=0.0232 | acc=0.9538 | F1=0.9017 | train=59.7ms pred=470.5ms dbscan=2.8ms total=9.6s 119.69GFLOPS uncert=347 cls=6
+Epoch  90 | lr=0.02933 | loss=0.0190 | acc=0.9521 | F1=0.8981 | train=61.1ms pred=474.3ms dbscan=19.0ms total=10.7s 116.94GFLOPS uncert=967 cls=6
+Epoch 100 | lr=0.02550 | loss=0.0197 | acc=0.9512 | F1=0.8945 | train=61.0ms pred=473.9ms dbscan=1.9ms total=11.8s 117.25GFLOPS uncert=168 cls=4
+Epoch 110 | lr=0.02167 | loss=0.0180 | acc=0.9548 | F1=0.9034 | train=61.2ms pred=473.8ms dbscan=1.8ms total=12.9s 116.76GFLOPS uncert=144 cls=3
+Epoch 120 | lr=0.01793 | loss=0.0173 | acc=0.9517 | F1=0.8956 | train=61.0ms pred=475.0ms dbscan=1.8ms total=13.9s 117.19GFLOPS uncert=113 cls=2
+Epoch 130 | lr=0.01438 | loss=0.0188 | acc=0.9537 | F1=0.9005 | train=61.2ms pred=474.5ms dbscan=1.8ms total=15.0s 116.78GFLOPS uncert=147 cls=4
+Epoch 140 | lr=0.01110 | loss=0.0191 | acc=0.9543 | F1=0.9017 | train=60.9ms pred=474.0ms dbscan=1.8ms total=16.1s 117.45GFLOPS uncert=116 cls=2
+Epoch 150 | lr=0.00818 | loss=0.0144 | acc=0.9516 | F1=0.8951 | train=60.3ms pred=475.1ms dbscan=1.7ms total=17.2s 118.45GFLOPS uncert=99 cls=1
+Epoch 160 | lr=0.00568 | loss=0.0170 | acc=0.9549 | F1=0.9033 | train=61.4ms pred=474.6ms dbscan=1.7ms total=18.3s 116.46GFLOPS uncert=90 cls=1
+  Saved model_best.bin
+Epoch 170 | lr=0.00367 | loss=0.0175 | acc=0.9554 | F1=0.9046 | train=60.3ms pred=474.0ms dbscan=1.7ms total=19.4s 118.50GFLOPS uncert=100 cls=1
+Epoch 180 | lr=0.00220 | loss=0.0156 | acc=0.9553 | F1=0.9044 | train=60.6ms pred=470.8ms dbscan=1.7ms total=20.5s 117.87GFLOPS uncert=86 cls=1
+Epoch 190 | lr=0.00130 | loss=0.0153 | acc=0.9554 | F1=0.9045 | train=61.1ms pred=470.6ms dbscan=1.7ms total=21.6s 116.88GFLOPS uncert=84 cls=1
+  Saved model.bin
+Saved model.bin (final) and model_best.bin (best val F1=0.9046)
+
+=== Training Summary ===
+  Total Train Time : 22658.62 ms (22.66 s)
+  Effective GFLOPS : 63.085
+  Best val macro-F1: 0.9046
+Training complete.

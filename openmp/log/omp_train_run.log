@@ -1,0 +1,54 @@
+OpenMP threads: 16
+[01:03:36] ── SVM Training (One-vs-One) ── Loading data ...
+[01:03:38] N_train (after label remap, holdouts dropped) = 588717
+[01:03:38] Data shuffled (seed=42) — each thread receives a balanced class mix.
+[01:03:38] Data load+shuffle time: 2.70s
+[01:03:38] Partition: base=36794/thread, remainder=13 on last thread  (thread 0 local_n=36794)
+[01:03:38] Thread-0 partition class counts: DDoS=5606  DoS=8326  Normal=18864  PortScan=3998
+[01:03:38] Starting OvO SVM training: EPOCHS=200 BATCH=512 LAMBDA=5.0e-04 LR_PEAK=0.050 LR_MIN=0.001  N_PAIRS=6
+[01:03:39] epoch  10/200  lr=0.04976  loss=0.6387  val_acc=0.8207  val_macro_f1=0.7958  [new best]
+         recall: DDoS=0.693  DoS=0.766  Normal=0.849  PortScan=0.985
+[01:03:39] epoch  20/200  lr=0.04892  loss=0.3673  val_acc=0.8989  val_macro_f1=0.8932  [new best]
+         recall: DDoS=0.993  DoS=0.907  Normal=0.849  PortScan=0.985
+[01:03:39] epoch  30/200  lr=0.04750  loss=0.2725  val_acc=0.9232  val_macro_f1=0.9186  [new best]
+         recall: DDoS=0.974  DoS=0.906  Normal=0.902  PortScan=0.987
+[01:03:39] epoch  40/200  lr=0.04554  loss=0.2491  val_acc=0.9156  val_macro_f1=0.9113  [patience 1/30]
+         recall: DDoS=0.997  DoS=0.909  Normal=0.879  PortScan=0.986
+[01:03:39] epoch  50/200  lr=0.04309  loss=0.2317  val_acc=0.9288  val_macro_f1=0.9229  [new best]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.902  PortScan=0.986
+[01:03:39] epoch  60/200  lr=0.04021  loss=0.2129  val_acc=0.9306  val_macro_f1=0.9244  [new best]
+         recall: DDoS=0.998  DoS=0.918  Normal=0.904  PortScan=0.987
+[01:03:39] epoch  70/200  lr=0.03696  loss=0.1946  val_acc=0.9339  val_macro_f1=0.9274  [new best]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.912  PortScan=0.987
+[01:03:39] epoch  80/200  lr=0.03344  loss=0.2106  val_acc=0.9337  val_macro_f1=0.9271  [patience 1/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.911  PortScan=0.987
+[01:03:39] epoch  90/200  lr=0.02971  loss=0.2077  val_acc=0.9344  val_macro_f1=0.9277  [new best]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.913  PortScan=0.987
+[01:03:40] epoch 100/200  lr=0.02588  loss=0.2021  val_acc=0.9350  val_macro_f1=0.9282  [new best]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.914  PortScan=0.987
+[01:03:40] epoch 110/200  lr=0.02205  loss=0.1716  val_acc=0.9349  val_macro_f1=0.9280  [patience 1/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.914  PortScan=0.987
+[01:03:40] epoch 120/200  lr=0.01830  loss=0.1796  val_acc=0.9348  val_macro_f1=0.9280  [patience 2/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.914  PortScan=0.987
+[01:03:40] epoch 130/200  lr=0.01472  loss=0.1821  val_acc=0.9358  val_macro_f1=0.9289  [new best]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.916  PortScan=0.987
+[01:03:40] epoch 140/200  lr=0.01141  loss=0.1756  val_acc=0.9358  val_macro_f1=0.9289  [patience 1/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.916  PortScan=0.987
+[01:03:40] epoch 150/200  lr=0.00845  loss=0.1805  val_acc=0.9351  val_macro_f1=0.9282  [patience 2/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.914  PortScan=0.987
+[01:03:40] epoch 160/200  lr=0.00591  loss=0.1647  val_acc=0.9353  val_macro_f1=0.9284  [patience 3/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.915  PortScan=0.987
+[01:03:40] epoch 170/200  lr=0.00385  loss=0.1704  val_acc=0.9356  val_macro_f1=0.9287  [patience 4/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.915  PortScan=0.987
+[01:03:40] epoch 180/200  lr=0.00232  loss=0.1631  val_acc=0.9358  val_macro_f1=0.9288  [patience 5/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.915  PortScan=0.987
+[01:03:40] epoch 190/200  lr=0.00136  loss=0.1809  val_acc=0.9357  val_macro_f1=0.9288  [patience 6/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.915  PortScan=0.987
+[01:03:41] epoch 200/200  lr=0.00100  loss=0.1655  val_acc=0.9357  val_macro_f1=0.9288  [patience 7/30]
+         recall: DDoS=0.998  DoS=0.916  Normal=0.915  PortScan=0.987
+[01:03:41] Training time: 2.159s  (OvO, 16 thread(s))
+[01:03:41] train_ms=2159.5  accuracy=0.9358  macro_f1=0.9289  GFLOPS=3.88
+[01:03:41] SVM model saved -> ../model/model.bin  (K=6 F=52)  [best-checkpoint weights]
+[01:03:41] Training log    -> ../log/training_log.csv
+[01:03:41] Run log         -> ../log/omp_train_run.log
+[01:03:41] Done. Run omp_infer to apply the hybrid SVM+DBSCAN pipeline.

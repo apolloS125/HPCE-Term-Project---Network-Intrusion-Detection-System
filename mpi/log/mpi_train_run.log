@@ -1,0 +1,52 @@
+[01:14:20] ── SVM Training ── Loading data ...
+[01:14:22] N_train (after label remap, holdouts dropped) = 588717
+[01:14:23] Data shuffled (seed=42) — each rank receives a balanced class mix.
+[01:14:23] Data load+shuffle time: 2.81s
+[01:14:23] Partition: base=588717/rank, remainder=0 on rank 0  (rank 0 local_n=588717)
+[01:14:23] Rank-0 partition class counts: DDoS=89610  DoS=135621  Normal=300000  PortScan=63486
+[01:14:23] Starting SVM training: EPOCHS=200 BATCH=512 LAMBDA=5.0e-04 LR_PEAK=0.050 LR_MIN=0.001
+[01:14:23] epoch  10/200  lr=0.04976  loss=0.5137  val_acc=0.8467  val_macro_f1=0.8270  [new best]
+         recall: DDoS=0.864  DoS=0.763  Normal=0.850  PortScan=0.984
+[01:14:23] epoch  20/200  lr=0.04892  loss=0.4065  val_acc=0.8928  val_macro_f1=0.8873  [new best]
+         recall: DDoS=0.985  DoS=0.907  Normal=0.839  PortScan=0.986
+[01:14:23] epoch  30/200  lr=0.04750  loss=0.3411  val_acc=0.9288  val_macro_f1=0.9246  [new best]
+         recall: DDoS=0.950  DoS=0.918  Normal=0.915  PortScan=0.985
+[01:14:23] epoch  40/200  lr=0.04554  loss=0.2368  val_acc=0.9168  val_macro_f1=0.9104  [patience 1/30]
+         recall: DDoS=0.991  DoS=0.901  Normal=0.887  PortScan=0.985
+[01:14:23] epoch  50/200  lr=0.04309  loss=0.3180  val_acc=0.9346  val_macro_f1=0.9272  [new best]
+         recall: DDoS=0.987  DoS=0.907  Normal=0.921  PortScan=0.985
+[01:14:23] epoch  60/200  lr=0.04021  loss=0.2505  val_acc=0.9317  val_macro_f1=0.9261  [patience 1/30]
+         recall: DDoS=0.995  DoS=0.926  Normal=0.904  PortScan=0.985
+[01:14:23] epoch  70/200  lr=0.03696  loss=0.2474  val_acc=0.9338  val_macro_f1=0.9281  [new best]
+         recall: DDoS=0.996  DoS=0.920  Normal=0.910  PortScan=0.985
+[01:14:24] epoch  80/200  lr=0.03344  loss=0.3318  val_acc=0.9353  val_macro_f1=0.9296  [new best]
+         recall: DDoS=0.998  DoS=0.927  Normal=0.910  PortScan=0.985
+[01:14:24] epoch  90/200  lr=0.02971  loss=0.2871  val_acc=0.9378  val_macro_f1=0.9319  [new best]
+         recall: DDoS=0.997  DoS=0.925  Normal=0.915  PortScan=0.987
+[01:14:24] epoch 100/200  lr=0.02588  loss=0.1297  val_acc=0.9364  val_macro_f1=0.9306  [patience 1/30]
+         recall: DDoS=0.998  DoS=0.925  Normal=0.913  PortScan=0.987
+[01:14:24] epoch 110/200  lr=0.02205  loss=0.1618  val_acc=0.9354  val_macro_f1=0.9297  [patience 2/30]
+         recall: DDoS=0.998  DoS=0.924  Normal=0.911  PortScan=0.987
+[01:14:24] epoch 120/200  lr=0.01830  loss=0.1470  val_acc=0.9380  val_macro_f1=0.9322  [new best]
+         recall: DDoS=0.997  DoS=0.924  Normal=0.916  PortScan=0.987
+[01:14:24] epoch 130/200  lr=0.01472  loss=0.2138  val_acc=0.9357  val_macro_f1=0.9300  [patience 1/30]
+         recall: DDoS=0.998  DoS=0.924  Normal=0.912  PortScan=0.987
+[01:14:24] epoch 140/200  lr=0.01141  loss=0.1196  val_acc=0.9397  val_macro_f1=0.9338  [new best]
+         recall: DDoS=0.998  DoS=0.924  Normal=0.919  PortScan=0.987
+[01:14:24] epoch 150/200  lr=0.00845  loss=0.2067  val_acc=0.9385  val_macro_f1=0.9327  [patience 1/30]
+         recall: DDoS=0.997  DoS=0.924  Normal=0.917  PortScan=0.987
+[01:14:24] epoch 160/200  lr=0.00591  loss=0.1952  val_acc=0.9396  val_macro_f1=0.9337  [patience 2/30]
+         recall: DDoS=0.997  DoS=0.924  Normal=0.919  PortScan=0.987
+[01:14:24] epoch 170/200  lr=0.00385  loss=0.1624  val_acc=0.9383  val_macro_f1=0.9326  [patience 3/30]
+         recall: DDoS=0.997  DoS=0.923  Normal=0.917  PortScan=0.987
+[01:14:25] epoch 180/200  lr=0.00232  loss=0.1424  val_acc=0.9375  val_macro_f1=0.9317  [patience 4/30]
+         recall: DDoS=0.997  DoS=0.924  Normal=0.915  PortScan=0.987
+[01:14:25] epoch 190/200  lr=0.00136  loss=0.1706  val_acc=0.9371  val_macro_f1=0.9313  [patience 5/30]
+         recall: DDoS=0.997  DoS=0.924  Normal=0.914  PortScan=0.987
+[01:14:25] epoch 200/200  lr=0.00100  loss=0.2257  val_acc=0.9372  val_macro_f1=0.9314  [patience 6/30]
+         recall: DDoS=0.997  DoS=0.924  Normal=0.915  PortScan=0.987
+[01:14:25] Training time: 2.0s
+[01:14:25] SVM model saved -> model.bin  (K=6 F=52)
+[01:14:25] Training log    -> training_log.csv
+[01:14:25] Train results    -> train_results.csv
+[01:14:25] Done. Run mpi_infer to apply the hybrid SVM+DBSCAN pipeline.
