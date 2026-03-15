@@ -350,20 +350,58 @@ function setupPredict() {
     document.getElementById('btn-load-sample').addEventListener('click', loadSampleData);
     document.getElementById('btn-load-attacks').addEventListener('click', loadAttackSamples);
 
-    const dropZone = document.getElementById('drop-zone'), csvInput = document.getElementById('csv-upload');
-    dropZone.addEventListener('click', () => csvInput.click());
-    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('border-indigo-500/40', 'bg-indigo-500/5'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-indigo-500/40', 'bg-indigo-500/5'));
-    dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('border-indigo-500/40', 'bg-indigo-500/5'); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
-    csvInput.addEventListener('change', e => { if (e.target.files.length) handleFile(e.target.files[0]); });
+    const dropZone = document.getElementById('drop-zone');
+    const csvInput = document.getElementById('csv-upload');
+
+    if (!dropZone || !csvInput) {
+        console.error('File upload elements not found');
+        return;
+    }
+
+    dropZone.addEventListener('click', () => {
+        console.log('Drop zone clicked');
+        csvInput.click();
+    });
+    dropZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropZone.classList.add('border-indigo-500/40', 'bg-indigo-500/5');
+    });
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-indigo-500/40', 'bg-indigo-500/5');
+    });
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('border-indigo-500/40', 'bg-indigo-500/5');
+        if (e.dataTransfer.files.length) {
+            console.log('File dropped:', e.dataTransfer.files[0].name);
+            handleFile(e.dataTransfer.files[0]);
+        }
+    });
+    csvInput.addEventListener('change', e => {
+        if (e.target.files.length) {
+            console.log('File selected:', e.target.files[0].name);
+            handleFile(e.target.files[0]);
+        }
+    });
 
     document.getElementById('btn-predict-csv').addEventListener('click', predictCSV);
 }
 
 function handleFile(file) {
+    console.log('handleFile called with:', file);
+    if (!file) {
+        console.error('No file provided');
+        return;
+    }
     selectedFile = file;
-    document.getElementById('csv-filename').textContent = file.name;
-    document.getElementById('btn-predict-csv').disabled = false;
+    const filenameEl = document.getElementById('csv-filename');
+    const btnEl = document.getElementById('btn-predict-csv');
+
+    if (filenameEl) filenameEl.textContent = file.name;
+    if (btnEl) {
+        btnEl.disabled = false;
+        console.log('Upload button enabled');
+    }
 }
 
 async function loadPredictModels() {
@@ -440,13 +478,30 @@ function loadSampleData() {
     document.getElementById('manual-input').value = `# Base Profile: SYN/ACK Normal Flow Topology\n` + sample.join(', ');
 }
 
-function loadAttackSamples() {
-    const samples = [
-        '# Malicious Payload: DDoS Hulk Attempt', ATTACK_SAMPLES.ddos.map(v => v.toFixed(6)).join(', '),
-        '# Malicious Payload: DoS Slowloris', ATTACK_SAMPLES.dos.map(v => v.toFixed(6)).join(', '),
-        '# Reconnaissance: Intense Port Scan', ATTACK_SAMPLES.portscan.map(v => v.toFixed(6)).join(', ')
-    ];
-    document.getElementById('manual-input').value = samples.join('\n');
+async function loadAttackSamples() {
+    try {
+        const response = await fetch('/static/samples.txt');
+        const text = await response.text();
+        // Extract just the mixed attack batch section
+        const lines = text.split('\n');
+        const startIdx = lines.findIndex(l => l.includes('Mixed Attack Batch'));
+        if (startIdx > 0) {
+            const samples = lines.slice(startIdx).join('\n');
+            document.getElementById('manual-input').value = samples;
+        } else {
+            // Fallback to full file
+            document.getElementById('manual-input').value = text;
+        }
+    } catch(e) {
+        console.error('Failed to load samples:', e);
+        // Fallback to synthetic samples
+        const samples = [
+            '# Malicious Payload: DDoS Hulk Attempt', ATTACK_SAMPLES.ddos.map(v => v.toFixed(6)).join(', '),
+            '# Malicious Payload: DoS Slowloris', ATTACK_SAMPLES.dos.map(v => v.toFixed(6)).join(', '),
+            '# Reconnaissance: Intense Port Scan', ATTACK_SAMPLES.portscan.map(v => v.toFixed(6)).join(', ')
+        ];
+        document.getElementById('manual-input').value = samples.join('\n');
+    }
 }
 
 async function predictManual() {

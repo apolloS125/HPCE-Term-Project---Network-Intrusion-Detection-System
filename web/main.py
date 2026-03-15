@@ -286,49 +286,13 @@ def parse_hybrid_log(filepath: str) -> dict:
     return result
 
 
-def parse_timing_from_out(filepath: str) -> dict:
-    """Parse timing and GFLOPS from .out file."""
-    result = {"train_ms": 0.0, "predict_ms": 0.0, "dbscan_ms": 0.0, "total_ms": 0.0, "gflops": 0.0}
-    if not os.path.exists(filepath):
-        return result
-    with open(filepath, "r") as f:
-        content = f.read()
-    # Parse: Timing: Train=124218.8ms Predict=44596.4ms DBSCAN=1413.6ms Total=170289.5ms
-    m = re.search(r"Timing:\s*Train=([\d.]+)ms\s*Predict=([\d.]+)ms\s*DBSCAN=([\d.]+)ms\s*Total=([\d.]+)ms", content)
-    if m:
-        result["train_ms"] = float(m.group(1))
-        result["predict_ms"] = float(m.group(2))
-        result["dbscan_ms"] = float(m.group(3))
-        result["total_ms"] = float(m.group(4))
-    # Parse GFLOPS
-    m = re.search(r"GFLOPS:\s*([\d.]+)", content)
-    if m:
-        result["gflops"] = float(m.group(1))
-    return result
-
-
-def find_latest_out_file(pattern: str) -> str:
-    """Find the latest .out file matching pattern in PROJECT_ROOT."""
-    import glob
-    files = glob.glob(str(PROJECT_ROOT / pattern))
-    if not files:
-        return ""
-    return max(files, key=os.path.getmtime)
-
-
 def get_all_models():
-    """Collect all model data from output files in respective folders."""
+    """Collect all model data from output files in respective folders only."""
     models = {}
 
-    # CUDA - read from cuda/log/hybrid_log.csv + timing from root .out
+    # CUDA - read from cuda/log/hybrid_log.csv only
     cuda_log = str(PROJECT_ROOT / "cuda" / "log" / "hybrid_log.csv")
     cuda_data = parse_hybrid_log(cuda_log)
-    cuda_out = find_latest_out_file("cuda_ids_*.out")
-    if cuda_out:
-        timing = parse_timing_from_out(cuda_out)
-        for k, v in timing.items():
-            if v > 0:
-                cuda_data[k] = v
     cuda_data["technique"] = "CUDA RFF-SVM"
     cuda_data["name"] = "CUDA"
     cuda_data["description"] = "GPU-accelerated RFF-SVM using NVIDIA CUDA. Uses Random Fourier Features for kernel approximation."
@@ -336,15 +300,9 @@ def get_all_models():
     cuda_data["hardware"] = "NVIDIA GPU"
     models["cuda"] = cuda_data
 
-    # MPI - read from mpi/log/hybrid_log.csv + timing from root .out
+    # MPI - read from mpi/log/hybrid_log.csv only
     mpi_log = str(PROJECT_ROOT / "mpi" / "log" / "hybrid_log.csv")
     mpi_data = parse_hybrid_log(mpi_log)
-    mpi_out = find_latest_out_file("mpi_ids_*.out")
-    if mpi_out:
-        timing = parse_timing_from_out(mpi_out)
-        for k, v in timing.items():
-            if v > 0:
-                mpi_data[k] = v
     mpi_data["technique"] = "MPI Linear SVM"
     mpi_data["name"] = "MPI"
     mpi_data["description"] = "Distributed-memory parallel using MPI. One-vs-All Linear SVM classifier."
@@ -352,15 +310,9 @@ def get_all_models():
     mpi_data["hardware"] = "Multi-node cluster"
     models["mpi"] = mpi_data
 
-    # OpenMP - read from openmp/log/hybrid_log.csv + timing from root .out
+    # OpenMP - read from openmp/log/hybrid_log.csv only
     openmp_log = str(PROJECT_ROOT / "openmp" / "log" / "hybrid_log.csv")
     openmp_data = parse_hybrid_log(openmp_log)
-    openmp_out = find_latest_out_file("openmp_ids_*.out")
-    if openmp_out:
-        timing = parse_timing_from_out(openmp_out)
-        for k, v in timing.items():
-            if v > 0:
-                openmp_data[k] = v
     openmp_data["technique"] = "OpenMP Linear SVM"
     openmp_data["name"] = "OpenMP"
     openmp_data["description"] = "Shared-memory parallel using OpenMP. One-vs-All Linear SVM classifier."
