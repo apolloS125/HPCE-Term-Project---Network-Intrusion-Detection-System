@@ -127,26 +127,102 @@
     <div class="tab-content max-w-6xl mx-auto px-6 py-8 space-y-8" id="tab-analysis">
 
         <div>
-            <h2 class="text-xl font-bold tracking-tight">Analysis</h2>
-            <p class="text-sm text-dim mt-1">Per-class precision, recall, F1, and confusion matrices</p>
+            <h2 class="text-xl font-bold tracking-tight">HPC Performance Analysis</h2>
+            <p class="text-sm text-dim mt-1">Comparative analysis of parallelization strategies</p>
         </div>
 
-        <!-- Per-class metrics chart -->
+        <!-- ═══ Comparison 1: Shared-memory ═══ -->
         <section class="card p-5">
-            <h3 class="section-title mb-4">Accuracy / Precision / Recall / F1 Comparison (%)</h3>
-            <div class="h-72"><canvas id="chart-analysis-metrics"></canvas></div>
+            <div class="flex items-center gap-3 mb-4">
+                <span class="px-2 py-1 bg-indigo-500/20 text-indigo-400 text-[10px] font-semibold rounded">SHARED-MEMORY</span>
+                <h3 class="text-sm font-semibold">OpenMP vs C++ Thread</h3>
+            </div>
+            <p class="text-xs text-dim mb-4">Both use shared-memory parallelism on multi-core CPU. Comparing threading implementations.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Performance Metrics</h4>
+                    <div id="cmp-shared-metrics" class="space-y-2"></div>
+                </div>
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">GFLOPS Comparison</h4>
+                    <div class="h-40"><canvas id="chart-cmp-shared"></canvas></div>
+                </div>
+            </div>
         </section>
 
-        <!-- Training time chart -->
+        <!-- ═══ Comparison 2: Distributed ═══ -->
         <section class="card p-5">
-            <h3 class="section-title mb-4">Training Time (seconds)</h3>
-            <div class="h-56"><canvas id="chart-analysis-train"></canvas></div>
+            <div class="flex items-center gap-3 mb-4">
+                <span class="px-2 py-1 bg-violet-500/20 text-violet-400 text-[10px] font-semibold rounded">DISTRIBUTED</span>
+                <h3 class="text-sm font-semibold">MPI vs PySpark</h3>
+            </div>
+            <p class="text-xs text-dim mb-4">Distributed computing approaches: low-level MPI vs high-level Spark framework.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Scalability Metrics</h4>
+                    <div id="cmp-dist-metrics" class="space-y-2"></div>
+                </div>
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Time Comparison</h4>
+                    <div class="h-40"><canvas id="chart-cmp-dist"></canvas></div>
+                </div>
+            </div>
         </section>
 
-        <!-- Confusion Matrices -->
-        <section>
-            <h3 class="section-title mb-4">Confusion Matrices — predicted vs. actual (sample count)</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="confusion-matrices"></div>
+        <!-- ═══ Comparison 3: GPU vs CPU ═══ -->
+        <section class="card p-5">
+            <div class="flex items-center gap-3 mb-4">
+                <span class="px-2 py-1 bg-cyan-500/20 text-cyan-400 text-[10px] font-semibold rounded">GPU vs CPU</span>
+                <h3 class="text-sm font-semibold">CUDA vs OpenMP</h3>
+            </div>
+            <p class="text-xs text-dim mb-4">Comparing GPU massively-parallel vs CPU multi-threaded execution.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Efficiency Metrics</h4>
+                    <div id="cmp-gpu-metrics" class="space-y-2"></div>
+                </div>
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">GFLOPS Comparison</h4>
+                    <div class="h-40"><canvas id="chart-cmp-gpu"></canvas></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ Comparison 4: Kernel Approximation ═══ -->
+        <section class="card p-5">
+            <div class="flex items-center gap-3 mb-4">
+                <span class="px-2 py-1 bg-amber-500/20 text-amber-400 text-[10px] font-semibold rounded">KERNEL APPROX</span>
+                <h3 class="text-sm font-semibold">RFF-SVM (CUDA) vs Exact Kernel (Thread)</h3>
+            </div>
+            <p class="text-xs text-dim mb-4">Trade-off between Random Fourier Features approximation and exact kernel computation.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Accuracy vs Speed Trade-off</h4>
+                    <div id="cmp-kernel-metrics" class="space-y-2"></div>
+                </div>
+                <div>
+                    <h4 class="text-xs text-dim mb-2 uppercase tracking-wider">Comparison</h4>
+                    <div class="h-40"><canvas id="chart-cmp-kernel"></canvas></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Summary Table -->
+        <section class="card p-5">
+            <h3 class="section-title mb-4">Summary Comparison Table</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="border-b border-zinc-800 text-left">
+                            <th class="th-cell">Comparison</th>
+                            <th class="th-cell">Models</th>
+                            <th class="th-cell">Winner</th>
+                            <th class="th-cell">Key Finding</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summary-tbody"></tbody>
+                </table>
+            </div>
         </section>
 
         <!-- Per-class detail tables -->

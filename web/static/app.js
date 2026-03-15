@@ -138,54 +138,130 @@ function renderDetails() {
 
 // ══════════════ ANALYSIS TAB ══════════════
 async function loadAnalysis() {
+    // Always render comparisons (uses global models object)
+    renderComparisons();
+
+    // Try to load per-class analysis data
     try {
         const analysis = await api('/api/analysis');
-        renderAnalysisCharts(analysis);
         renderAnalysisTables(analysis);
-        renderConfusionMatrices();
-    } catch(e) { console.error('Analysis load failed:', e); }
+    } catch(e) {
+        console.error('Analysis load failed:', e);
+        document.getElementById('analysis-tables').innerHTML = '<p class="text-sm text-dim">Per-class metrics not available.</p>';
+    }
 }
 
-function renderAnalysisCharts(analysis) {
-    // Grouped bar: Accuracy, Precision, Recall, F1 per model
-    const names = ordered().map(([,m])=>m.name);
-    const accuracies = ordered().map(([,m])=>m.accuracy);
-
-    // Get the per-class macro metrics from analysis (use the best available source per model)
-    const analysisKeys = {
-        cuda:'cuda_hybrid', mpi:'mpi', openmp:'openmp', thread:'thread', pyspark:'pyspark'
-    };
-    const precisions = [], recalls = [], f1s = [];
-    for (const [id] of ordered()) {
-        const key = analysisKeys[id];
-        const data = analysis[key];
-        if (data && data.metrics) {
-            const macro = data.metrics.find(m => m.class === 'macro avg' || m.class === 'macro');
-            if (macro) {
-                precisions.push(macro.precision * 100);
-                recalls.push(macro.recall * 100);
-                f1s.push(macro.f1 * 100);
-                continue;
-            }
-        }
-        // Fallback: use accuracy for all
-        const acc = models[id]?.accuracy || 0;
-        precisions.push(acc);
-        recalls.push(acc);
-        f1s.push(acc);
+function renderComparisons() {
+    if (!models || Object.keys(models).length === 0) {
+        console.warn('Models not loaded yet');
+        return;
     }
 
-    mk('chart-analysis-metrics','bar',names,[
-        {label:'Accuracy',data:accuracies,backgroundColor:'#6366f1cc',borderRadius:3,barPercentage:0.8,categoryPercentage:0.7},
-        {label:'Precision',data:precisions,backgroundColor:'#8b5cf6cc',borderRadius:3,barPercentage:0.8,categoryPercentage:0.7},
-        {label:'Recall',data:recalls,backgroundColor:'#06b6d4cc',borderRadius:3,barPercentage:0.8,categoryPercentage:0.7},
-        {label:'F1',data:f1s,backgroundColor:'#22c55ecc',borderRadius:3,barPercentage:0.8,categoryPercentage:0.7},
-    ],{...chartDef,plugins:{legend:{labels:{color:'#a1a1aa',font:{size:10},usePointStyle:true,pointStyleWidth:6,padding:16}}},
-        scales:{...chartDef.scales,y:{...chartDef.scales.y,min:Math.max(0,Math.min(...accuracies,...precisions,...recalls,...f1s)-5),max:100}}});
+    const omp = models.openmp || {};
+    const thr = models.thread || {};
+    const mpi = models.mpi || {};
+    const pys = models.pyspark || {};
+    const cuda = models.cuda || {};
 
-    // Training time
-    mk('chart-analysis-train','bar',names,[{data:ordered().map(([,m])=>m.train_ms/1000),backgroundColor:PALETTE,borderRadius:4,barThickness:32}],
-        {...chartDef,scales:{...chartDef.scales,y:{...chartDef.scales.y,ticks:{...chartDef.scales.y.ticks,callback:v=>v.toFixed(0)+'s'}}}});
+    console.log('Rendering comparisons with:', { omp, thr, mpi, pys, cuda });
+
+    // ═══ 1. Shared-memory: OpenMP vs Thread ═══
+    const sharedMetrics = document.getElementById('cmp-shared-metrics');
+    if (!sharedMetrics) { console.error('Element cmp-shared-metrics not found'); return; }
+    const ompGflops = omp.gflops || 0, thrGflops = thr.gflops || 0;
+    const ompTime = omp.total_ms || 0, thrTime = thr.total_ms || 0;
+    const sharedWinner = thrGflops > ompGflops ? 'C++ Thread' : 'OpenMP';
+    const sharedSpeedup = ompTime && thrTime ? (Math.max(ompTime, thrTime) / Math.min(ompTime, thrTime)).toFixed(2) : '—';
+    sharedMetrics.innerHTML = `
+        ${cmpRow('OpenMP GFLOPS', ompGflops.toFixed(2))}
+        ${cmpRow('Thread GFLOPS', thrGflops.toFixed(2))}
+        ${cmpRow('OpenMP Time', fmt(ompTime))}
+        ${cmpRow('Thread Time', fmt(thrTime))}
+        ${cmpRow('Speedup', sharedSpeedup + 'x', true)}
+        ${cmpRow('Winner', sharedWinner, true)}
+    `;
+    mk('chart-cmp-shared','bar',['OpenMP','C++ Thread'],[
+        {label:'GFLOPS',data:[ompGflops, thrGflops],backgroundColor:['#6366f1','#22c55e'],borderRadius:4,barThickness:40}
+    ],{...chartDef,indexAxis:'y',scales:{x:{...chartDef.scales.y},y:{ticks:{color:'#a1a1aa',font:{size:11}},grid:{display:false}}}});
+
+    // ═══ 2. Distributed: MPI vs PySpark ═══
+    const distMetrics = document.getElementById('cmp-dist-metrics');
+    const mpiTime = mpi.total_ms || 0, pysTime = pys.total_ms || 0;
+    const mpiAcc = mpi.accuracy || 0, pysAcc = pys.accuracy || 0;
+    const distWinner = pysTime && mpiTime ? (pysTime < mpiTime ? 'PySpark' : 'MPI') : '—';
+    const distSpeedup = mpiTime && pysTime ? (Math.max(mpiTime, pysTime) / Math.min(mpiTime, pysTime)).toFixed(2) : '—';
+    distMetrics.innerHTML = `
+        ${cmpRow('MPI Time', fmt(mpiTime))}
+        ${cmpRow('PySpark Time', fmt(pysTime))}
+        ${cmpRow('MPI Accuracy', mpiAcc.toFixed(2) + '%')}
+        ${cmpRow('PySpark Accuracy', pysAcc.toFixed(2) + '%')}
+        ${cmpRow('Speedup', distSpeedup + 'x', true)}
+        ${cmpRow('Faster', distWinner, true)}
+    `;
+    mk('chart-cmp-dist','bar',['MPI','PySpark'],[
+        {label:'Time (s)',data:[mpiTime/1000, pysTime/1000],backgroundColor:['#8b5cf6','#f59e0b'],borderRadius:4,barThickness:40}
+    ],{...chartDef,indexAxis:'y',scales:{x:{...chartDef.scales.y,ticks:{...chartDef.scales.y.ticks,callback:v=>v+'s'}},y:{ticks:{color:'#a1a1aa',font:{size:11}},grid:{display:false}}}});
+
+    // ═══ 3. GPU vs CPU: CUDA vs OpenMP ═══
+    const gpuMetrics = document.getElementById('cmp-gpu-metrics');
+    const cudaGflops = cuda.gflops || 0;
+    const cudaTime = cuda.total_ms || 0;
+    const cudaAcc = cuda.accuracy || 0, ompAcc = omp.accuracy || 0;
+    const gpuWinner = cudaGflops > ompGflops ? 'CUDA' : 'OpenMP';
+    gpuMetrics.innerHTML = `
+        ${cmpRow('CUDA GFLOPS', cudaGflops.toFixed(2))}
+        ${cmpRow('OpenMP GFLOPS', ompGflops.toFixed(2))}
+        ${cmpRow('CUDA Time', fmt(cudaTime))}
+        ${cmpRow('OpenMP Time', fmt(ompTime))}
+        ${cmpRow('CUDA Accuracy', cudaAcc.toFixed(2) + '%')}
+        ${cmpRow('OpenMP Accuracy', ompAcc.toFixed(2) + '%')}
+        ${cmpRow('Higher GFLOPS', gpuWinner, true)}
+    `;
+    mk('chart-cmp-gpu','bar',['CUDA','OpenMP'],[
+        {label:'GFLOPS',data:[cudaGflops, ompGflops],backgroundColor:['#06b6d4','#6366f1'],borderRadius:4,barThickness:40}
+    ],{...chartDef,indexAxis:'y',scales:{x:{...chartDef.scales.y},y:{ticks:{color:'#a1a1aa',font:{size:11}},grid:{display:false}}}});
+
+    // ═══ 4. Kernel Approximation: RFF (CUDA) vs Exact (Thread) ═══
+    const kernelMetrics = document.getElementById('cmp-kernel-metrics');
+    const accDiff = (thrAcc => cudaAcc - thrAcc)(thr.accuracy || 0);
+    const kernelWinner = cudaAcc > (thr.accuracy||0) ? 'RFF (CUDA)' : 'Exact (Thread)';
+    kernelMetrics.innerHTML = `
+        ${cmpRow('RFF Accuracy', cudaAcc.toFixed(2) + '%')}
+        ${cmpRow('Exact Accuracy', (thr.accuracy||0).toFixed(2) + '%')}
+        ${cmpRow('RFF Time', fmt(cudaTime))}
+        ${cmpRow('Exact Time', fmt(thrTime))}
+        ${cmpRow('RFF GFLOPS', cudaGflops.toFixed(2))}
+        ${cmpRow('Exact GFLOPS', thrGflops.toFixed(2))}
+        ${cmpRow('Accuracy Diff', (accDiff >= 0 ? '+' : '') + accDiff.toFixed(2) + '%', true)}
+        ${cmpRow('Better Accuracy', kernelWinner, true)}
+    `;
+    mk('chart-cmp-kernel','bar',['RFF (CUDA)','Exact (Thread)'],[
+        {label:'Accuracy',data:[cudaAcc, thr.accuracy||0],backgroundColor:['#f59e0b','#22c55e'],borderRadius:4,barThickness:40}
+    ],{...chartDef,indexAxis:'y',scales:{x:{...chartDef.scales.y,min:80,max:100,ticks:{...chartDef.scales.y.ticks,callback:v=>v+'%'}},y:{ticks:{color:'#a1a1aa',font:{size:11}},grid:{display:false}}}});
+
+    // ═══ Summary Table ═══
+    const summaryTbody = document.getElementById('summary-tbody');
+    const summaryData = [
+        {cmp:'Shared-memory', models:'OpenMP vs Thread', winner:sharedWinner, finding:`${sharedWinner} achieves ${sharedSpeedup}x speedup with higher GFLOPS`},
+        {cmp:'Distributed', models:'MPI vs PySpark', winner:distWinner, finding:`${distWinner} is ${distSpeedup}x faster for distributed workload`},
+        {cmp:'GPU vs CPU', models:'CUDA vs OpenMP', winner:gpuWinner, finding:`${gpuWinner} delivers higher computational throughput`},
+        {cmp:'Kernel Approx', models:'RFF vs Exact', winner:kernelWinner, finding:`${kernelWinner} achieves better accuracy (${accDiff>=0?'+':''}${accDiff.toFixed(2)}% diff)`},
+    ];
+    summaryTbody.innerHTML = summaryData.map(r => `
+        <tr class="border-b border-zinc-800/50">
+            <td class="px-5 py-3 text-zinc-300 font-medium">${r.cmp}</td>
+            <td class="px-5 py-3 text-zinc-400">${r.models}</td>
+            <td class="px-5 py-3"><span class="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold rounded">${r.winner}</span></td>
+            <td class="px-5 py-3 text-zinc-400 text-xs">${r.finding}</td>
+        </tr>
+    `).join('');
+}
+
+function cmpRow(label, value, highlight=false) {
+    return `<div class="flex justify-between py-1.5 border-b border-zinc-800/30">
+        <span class="text-dim text-xs">${label}</span>
+        <span class="mono text-xs ${highlight ? 'text-emerald-400 font-medium' : 'text-zinc-300'}">${value}</span>
+    </div>`;
 }
 
 function renderAnalysisTables(analysis) {
@@ -202,41 +278,6 @@ function renderAnalysisTables(analysis) {
             </tbody></table></div>`;
     }
     el.innerHTML = html || '<p class="text-sm text-dim">No per-class metrics available from log files.</p>';
-}
-
-function renderConfusionMatrices() {
-    // Build confusion matrices from prediction files vs ground truth
-    // Since we don't have ground truth CSVs in the frontend, show prediction distribution as proxy
-    const el = document.getElementById('confusion-matrices');
-    const modelNames = ordered().map(([id,m])=>({id,name:m.name}));
-
-    Promise.all(modelNames.map(m => api(`/api/models/${m.id}/predictions`).then(d => ({...m, ...d})).catch(()=>null)))
-        .then(results => {
-            const valid = results.filter(r => r && r.total > 0);
-            el.innerHTML = valid.map((r, idx) => {
-                const dist = r.distribution;
-                const keys = Object.keys(dist).sort((a,b) => parseInt(a)-parseInt(b));
-                const total = r.total;
-                return `<div class="card p-4">
-                    <h4 class="text-xs font-semibold text-zinc-300 mb-3">${r.name}</h4>
-                    <table class="cm-table">
-                        <thead><tr><th>Class</th><th>Count</th><th>%</th><th>Bar</th></tr></thead>
-                        <tbody>
-                        ${keys.map((k,i) => {
-                            const cnt = dist[k];
-                            const pct = (cnt/total*100).toFixed(1);
-                            const label = LABEL_MAP[parseInt(k)] || (k=='-1'?'Anomaly/Noise':`Class ${k}`);
-                            const maxCnt = Math.max(...Object.values(dist));
-                            return `<tr><td class="text-left text-zinc-300 text-[11px]">${label}</td>
-                                <td class="cm-cell">${num(cnt)}</td><td class="cm-cell">${pct}%</td>
-                                <td><div class="h-1.5 rounded-full" style="width:${(cnt/maxCnt*100).toFixed(0)}%;background:${PALETTE[i%5]}"></div></td></tr>`;
-                        }).join('')}
-                        </tbody>
-                        <tfoot><tr><td class="text-left font-medium text-zinc-200 text-[11px]">Total</td><td class="cm-cell font-medium text-zinc-200">${num(total)}</td><td></td><td></td></tr></tfoot>
-                    </table>
-                </div>`;
-            }).join('');
-        });
 }
 
 // ══════════════ PREDICT TAB ══════════════

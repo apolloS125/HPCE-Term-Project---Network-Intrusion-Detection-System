@@ -254,6 +254,11 @@ def parse_hybrid_log(filepath: str) -> dict:
         "macro_f1": 0.0,
         "n_test": 0,
         "n_clusters": 0,
+        "gflops": 0.0,
+        "train_ms": 0.0,
+        "predict_ms": 0.0,
+        "dbscan_ms": 0.0,
+        "total_ms": 0.0,
     }
     if not os.path.exists(filepath):
         return result
@@ -263,7 +268,7 @@ def parse_hybrid_log(filepath: str) -> dict:
             metric = row.get("metric", "")
             value = row.get("value", "0")
             try:
-                if metric == "macro_f1_hybrid":
+                if metric in ["macro_f1_hybrid", "macro_f1"]:
                     result["macro_f1"] = float(value)
                     result["accuracy"] = float(value) * 100  # Convert to percentage
                 elif metric == "n_test":
@@ -272,49 +277,93 @@ def parse_hybrid_log(filepath: str) -> dict:
                     result["n_clusters"] = int(value)
                 elif metric == "holdout_detection_rate":
                     result["detection_rate"] = float(value) * 100
+                elif metric == "svm_confident_acc":
+                    # Use this as accuracy if macro_f1 not found
+                    if result["accuracy"] == 0:
+                        result["accuracy"] = float(value) * 100
             except:
                 pass
     return result
+
+
+def parse_timing_from_out(filepath: str) -> dict:
+    """Parse timing and GFLOPS from .out file."""
+    result = {"train_ms": 0.0, "predict_ms": 0.0, "dbscan_ms": 0.0, "total_ms": 0.0, "gflops": 0.0}
+    if not os.path.exists(filepath):
+        return result
+    with open(filepath, "r") as f:
+        content = f.read()
+    # Parse: Timing: Train=124218.8ms Predict=44596.4ms DBSCAN=1413.6ms Total=170289.5ms
+    m = re.search(r"Timing:\s*Train=([\d.]+)ms\s*Predict=([\d.]+)ms\s*DBSCAN=([\d.]+)ms\s*Total=([\d.]+)ms", content)
+    if m:
+        result["train_ms"] = float(m.group(1))
+        result["predict_ms"] = float(m.group(2))
+        result["dbscan_ms"] = float(m.group(3))
+        result["total_ms"] = float(m.group(4))
+    # Parse GFLOPS
+    m = re.search(r"GFLOPS:\s*([\d.]+)", content)
+    if m:
+        result["gflops"] = float(m.group(1))
+    return result
+
+
+def find_latest_out_file(pattern: str) -> str:
+    """Find the latest .out file matching pattern in PROJECT_ROOT."""
+    import glob
+    files = glob.glob(str(PROJECT_ROOT / pattern))
+    if not files:
+        return ""
+    return max(files, key=os.path.getmtime)
 
 
 def get_all_models():
     """Collect all model data from output files in respective folders."""
     models = {}
 
-    # CUDA - read from cuda/log/
-    cuda_out = str(PROJECT_ROOT / "cuda" / "log" / "cuda_hybrid_3757.out")
-    cuda_data = parse_output_file(cuda_out)
-    if cuda_data["accuracy"] == 0:
-        # Try parsing the .out file for macro F1
-        if os.path.exists(cuda_out):
-            with open(cuda_out, "r") as f:
-                content = f.read()
-            m = re.search(r"macro\s+([\d.]+)", content)
-            if m:
-                cuda_data["accuracy"] = float(m.group(1)) * 100
+    # CUDA - read from cuda/log/hybrid_log.csv + timing from root .out
+    cuda_log = str(PROJECT_ROOT / "cuda" / "log" / "hybrid_log.csv")
+    cuda_data = parse_hybrid_log(cuda_log)
+    cuda_out = find_latest_out_file("cuda_ids_*.out")
+    if cuda_out:
+        timing = parse_timing_from_out(cuda_out)
+        for k, v in timing.items():
+            if v > 0:
+                cuda_data[k] = v
     cuda_data["technique"] = "CUDA RFF-SVM"
     cuda_data["name"] = "CUDA"
-    cuda_data["description"] = "GPU-accelerated RFF-SVM using NVIDIA CUDA."
+    cuda_data["description"] = "GPU-accelerated RFF-SVM using NVIDIA CUDA. Uses Random Fourier Features for kernel approximation."
     cuda_data["parallelism"] = "GPU (CUDA threads/blocks)"
     cuda_data["hardware"] = "NVIDIA GPU"
     models["cuda"] = cuda_data
 
-    # MPI - read from mpi/log/hybrid_log.csv
+    # MPI - read from mpi/log/hybrid_log.csv + timing from root .out
     mpi_log = str(PROJECT_ROOT / "mpi" / "log" / "hybrid_log.csv")
     mpi_data = parse_hybrid_log(mpi_log)
-    mpi_data["technique"] = "MPI (4 processes)"
+    mpi_out = find_latest_out_file("mpi_ids_*.out")
+    if mpi_out:
+        timing = parse_timing_from_out(mpi_out)
+        for k, v in timing.items():
+            if v > 0:
+                mpi_data[k] = v
+    mpi_data["technique"] = "MPI Linear SVM"
     mpi_data["name"] = "MPI"
-    mpi_data["description"] = "Distributed-memory parallel using MPI."
+    mpi_data["description"] = "Distributed-memory parallel using MPI. One-vs-All Linear SVM classifier."
     mpi_data["parallelism"] = "Distributed (4 MPI processes)"
     mpi_data["hardware"] = "Multi-node cluster"
     models["mpi"] = mpi_data
 
-    # OpenMP - read from openmp/log/hybrid_log.csv
+    # OpenMP - read from openmp/log/hybrid_log.csv + timing from root .out
     openmp_log = str(PROJECT_ROOT / "openmp" / "log" / "hybrid_log.csv")
     openmp_data = parse_hybrid_log(openmp_log)
-    openmp_data["technique"] = "OpenMP (8 threads)"
+    openmp_out = find_latest_out_file("openmp_ids_*.out")
+    if openmp_out:
+        timing = parse_timing_from_out(openmp_out)
+        for k, v in timing.items():
+            if v > 0:
+                openmp_data[k] = v
+    openmp_data["technique"] = "OpenMP Linear SVM"
     openmp_data["name"] = "OpenMP"
-    openmp_data["description"] = "Shared-memory parallel using OpenMP."
+    openmp_data["description"] = "Shared-memory parallel using OpenMP. One-vs-All Linear SVM classifier."
     openmp_data["parallelism"] = "Shared-memory (8 OpenMP threads)"
     openmp_data["hardware"] = "Multi-core CPU"
     models["openmp"] = openmp_data
@@ -329,9 +378,9 @@ def get_all_models():
         "predict_ms": float(thread_data.get("predict_ms", 0)) if thread_data.get("predict_ms") else 0,
         "dbscan_ms": float(thread_data.get("dbscan_ms", 0)) if thread_data.get("dbscan_ms") else 0,
         "gflops": float(thread_data.get("gflops", 0)) if thread_data.get("gflops") else 0,
-        "technique": "C++ Thread (8 threads)",
+        "technique": "C++ Thread Kernel SVM",
         "name": "C++ Thread",
-        "description": "Shared-memory parallel using C++ std::thread.",
+        "description": "Shared-memory parallel using C++ std::thread. RBF Kernel SVM with One-vs-One voting.",
         "parallelism": "Shared-memory (8 C++ threads)",
         "hardware": "Multi-core CPU",
     }
@@ -341,7 +390,7 @@ def get_all_models():
     pyspark_summary = str(PROJECT_ROOT / "pyspark" / "pyspark_summary.csv")
     pyspark_data = parse_pyspark_summary(pyspark_summary)
     pyspark_data["name"] = "PySpark"
-    pyspark_data["description"] = "Distributed computing using Apache Spark."
+    pyspark_data["description"] = "Distributed computing using Apache Spark. RBF Kernel SVM with One-vs-One voting."
     pyspark_data["parallelism"] = "Distributed (3 Spark workers)"
     pyspark_data["hardware"] = "Spark Cluster"
     models["pyspark"] = pyspark_data
