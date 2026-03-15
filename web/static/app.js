@@ -4,12 +4,12 @@
  */
 
 const COLORS = { 
-    indigo: '#6366f1', 
-    violet: '#8b5cf6', 
-    cyan: '#06b6d4', 
-    green: '#10b981', 
-    amber: '#f59e0b',
-    fuchsia: '#d946ef'
+    indigo: '#2563eb', // Blue
+    violet: '#0ea5e9', // Sky
+    cyan: '#6366f1', // Indigo
+    green: '#8b5cf6', // Violet
+    amber: '#ec4899', // Pink
+    fuchsia: '#f43f5e' // Rose
 };
 const PALETTE = [COLORS.indigo, COLORS.violet, COLORS.cyan, COLORS.green, COLORS.amber, COLORS.fuchsia];
 const MODEL_ORDER = ['cuda', 'mpi', 'openmp', 'thread', 'pyspark'];
@@ -24,8 +24,58 @@ document.addEventListener('DOMContentLoaded', () => {
     Chart.defaults.font.family = 'Inter, sans-serif';
     Chart.defaults.color = '#71717a';
     setupTabs(); 
-    init(); 
+    setupLanding();
+    setupScrollAnimations();
 });
+
+function setupLanding() {
+    const btn = document.getElementById('btn-enter-system');
+    const loading = document.getElementById('landing-loading');
+    const content = document.getElementById('landing-content');
+    const landing = document.getElementById('landing-page');
+    const body = document.getElementById('main-body');
+
+    if (!btn || !landing) {
+        init(); // Fallback if no landing page
+        return;
+    }
+
+    btn.addEventListener('click', async () => {
+        // 1. Show loading state
+        btn.classList.add('opacity-0', 'pointer-events-none');
+        loading.classList.remove('opacity-0');
+        
+        // 2. Fetch data in the background
+        const success = await init();
+        
+        // 3. Small delay for effect
+        setTimeout(() => {
+            content.classList.add('landing-zoom-out');
+            setTimeout(() => {
+                landing.classList.add('hide-landing');
+                body.classList.remove('overflow-hidden'); // Allow scrolling
+                
+                // Remove landing from DOM after transition (1s) to save resources
+                setTimeout(() => landing.remove(), 1000);
+            }, 300);
+        }, 800);
+    });
+}
+
+function setupScrollAnimations() {
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('scroll-animated');
+            }
+        });
+    }, {
+        threshold: 0.1, 
+        rootMargin: "0px 0px -50px 0px" 
+    });
+
+    document.querySelectorAll('.scroll-animate').forEach(el => observer.observe(el));
+}
 
 // ── Tabs ──
 function setupTabs() {
@@ -47,7 +97,12 @@ async function init() {
         renderDashboard(overview);
         loadAnalysis();
         setupPredict();
-    } catch (e) { console.error(e); setStatus(false); }
+        return true;
+    } catch (e) { 
+        console.error(e); 
+        setStatus(false); 
+        return false;
+    }
 }
 
 async function api(path) { const r = await fetch(path); if (!r.ok) throw new Error(r.status); return r.json(); }
@@ -76,11 +131,10 @@ function renderKPI(ov) {
         { label:'Max Throughput', value:(ov.highest_gflops.gflops||0).toFixed(1) + ' GF', sub:ov.highest_gflops.name },
     ];
     document.getElementById('kpi-strip').innerHTML = kpis.map(k => `
-        <div class="card p-6 flex flex-col justify-center relative overflow-hidden group hoverable">
-            <div class="absolute -right-6 -top-6 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-colors"></div>
-            <p class="text-[10px] text-dim uppercase tracking-widest font-display font-medium mb-1.5">${k.label}</p>
-            <p class="text-3xl font-bold tracking-tight kpi-value mb-1">${k.value}</p>
-            <p class="text-xs text-indigo-400 font-medium">${k.sub}</p>
+        <div class="card p-6 flex flex-col justify-center relative overflow-hidden group hoverable text-left">
+            <p class="text-[11px] text-zinc-400 uppercase tracking-widest font-display font-medium mb-1.5">${k.label}</p>
+            <p class="text-3xl font-bold tracking-tight text-white mb-1">${k.value}</p>
+            <p class="text-xs text-zinc-500 font-medium">${k.sub}</p>
         </div>`).join('');
 }
 
@@ -262,7 +316,7 @@ function renderComparisons() {
         ${cmpRow('GPU Time', fmt(cudaTime))}
         ${cmpRow('CPU Time', fmt(ompTime))}
         ${cmpRow('GPU Precision', cudaAcc.toFixed(2) + '%')}
-        ${cmpRow('Computational Superiority', gpuWinner, true, COLORS.cyan)}
+        ${cmpRow('Optimal Hardware', gpuWinner, true, COLORS.cyan)}
     `;
 
     const accDiff = (thrAcc => cudaAcc - thrAcc)(thr.accuracy || 0);
@@ -490,17 +544,17 @@ async function loadPredictInfo(modelId = 'pyspark') {
     } catch(e) { console.error(e); }
 }
 
+// Real CICIDS 2017/2018 Attack Samples (52 features each)
 const ATTACK_SAMPLES = {
-    ddos: [0.01, 0.85, 0.0001, 0, 0.0005, 0.002, ...Array(46).fill(0).map(()=>Math.random()*0.1)],
-    dos: [0, 0.0003, 0.1, 0.0001, 0.0002, 0.026, ...Array(46).fill(0).map(()=>Math.random()*0.1)],
-    portscan: [0, 0.0003, 0.07, 0.00004, 0.00001, 0.001, ...Array(46).fill(0).map(()=>Math.random()*0.1)],
-    normal: [0, 0.12, 0.0008, 0.00001, 0.00002, 0.008, ...Array(46).fill(0).map(()=>Math.random()*0.01)],
+    ddos: [-0.376598, 1.105360, 0.001172, -0.076136, -0.299018, -0.250126, -0.284270, -0.279023, 3.134255, -0.452150, 2.402362, 3.667319, -0.043828, -0.210244, 0.644282, 1.174040, 1.272432, -0.060296, 1.095490, 0.384357, 1.036627, 1.273198, -0.113704, -0.349671, -0.220390, -0.254053, -0.292736, -0.109019, 0.001757, 0.000180, -0.182233, -0.182783, -0.487408, 3.102843, 1.115411, 2.511597, 3.049444, -0.285013, -0.732679, 1.346025, 1.076959, -0.076136, -0.508706, -0.171583, 0.003482, 0.001969, 2.594351, 1.817386, 2.869748, 1.336610, 1.280467, 1.365544],
+    dos: [-0.376598, 1.762956, -0.006533, -0.021462, 0.220627, -0.250126, 0.215456, 0.398923, 2.177632, -0.452150, 2.399116, 2.403634, -0.043830, -0.210245, 2.135625, 2.715350, 2.077966, -0.060295, 1.767238, 2.620135, 3.168219, 2.076818, -0.113703, -0.368341, -0.241149, -0.289177, -0.317111, -0.109000, 0.001753, 0.000578, -0.182234, -0.182783, -0.487408, 2.150352, 2.228524, 2.328110, 2.653395, 3.508612, -0.732679, -0.742928, 2.300956, -0.021462, -0.527967, -0.170740, -0.006332, 0.001969, -0.148834, -0.162457, -0.127786, 2.159810, 2.083563, 2.192189],
+    portscan: [-0.377229, -0.624424, -0.011156, -0.088241, -0.329486, -0.209633, -0.316264, -0.301885, -0.679404, -0.352162, -0.730353, -0.640898, 0.033292, 2.171810, -0.441921, -0.572184, -0.578121, -0.060295, -0.616857, -0.440722, -0.547218, -0.572955, -0.113704, -0.373060, -0.246397, -0.296732, -0.322640, -0.109024, 0.001746, -0.000470, 1.106547, 4.976053, -0.397008, -0.694344, -0.763476, -0.693481, -0.514079, -0.285013, 1.364853, -0.742928, -0.764330, -0.088241, -0.450923, -0.203748, -0.007968, 0.001973, -0.148834, -0.162457, -0.127786, -0.554524, -0.564482, -0.533506],
+    normal: [-0.353677, 0.158172, -0.009615, -0.073715, -0.270243, 0.499008, -0.087215, -0.301885, -0.681379, -0.452150, -0.736844, -0.640898, -0.043836, -0.210245, 5.449614, -0.572184, 0.292728, 8.769511, 0.164813, 2.573045, -0.547218, 0.295823, 3.599776, -0.373060, -0.246397, -0.296732, -0.322640, -0.109024, 0.001748, -0.000651, -0.182233, -0.182784, 1.184983, -0.684187, -0.687318, -0.695872, -0.514081, -0.285013, -0.732679, 1.346025, -0.660212, -0.073715, 1.942252, -0.203889, -0.006332, 0.001981, -0.148834, -0.162457, -0.127786, -0.554524, -0.564482, -0.533506],
 };
 
 function loadSampleData() {
-    const types = ['normal'];
     const sample = ATTACK_SAMPLES.normal.map(v => v.toFixed(6));
-    document.getElementById('manual-input').value = `# Base Profile: SYN/ACK Normal Flow Topology\n` + sample.join(', ');
+    document.getElementById('manual-input').value = `# Real CICIDS Normal Traffic Sample (52 features)\n` + sample.join(', ');
 }
 
 async function loadAttackSamples() {
@@ -519,11 +573,11 @@ async function loadAttackSamples() {
         }
     } catch(e) {
         console.error('Failed to load samples:', e);
-        // Fallback to synthetic samples
+        // Fallback to real CICIDS samples
         const samples = [
-            '# Malicious Payload: DDoS Hulk Attempt', ATTACK_SAMPLES.ddos.map(v => v.toFixed(6)).join(', '),
-            '# Malicious Payload: DoS Slowloris', ATTACK_SAMPLES.dos.map(v => v.toFixed(6)).join(', '),
-            '# Reconnaissance: Intense Port Scan', ATTACK_SAMPLES.portscan.map(v => v.toFixed(6)).join(', ')
+            '# Real CICIDS DDoS Attack Sample', ATTACK_SAMPLES.ddos.map(v => v.toFixed(6)).join(', '),
+            '# Real CICIDS DoS Slowloris Sample', ATTACK_SAMPLES.dos.map(v => v.toFixed(6)).join(', '),
+            '# Real CICIDS PortScan Sample', ATTACK_SAMPLES.portscan.map(v => v.toFixed(6)).join(', ')
         ];
         document.getElementById('manual-input').value = samples.join('\n');
     }
@@ -560,9 +614,12 @@ async function predictCSV() {
     try {
         const res = await fetch('/api/predict/csv', {method:'POST', body:form});
         const data = await res.json();
-        if (!res.ok) { alert(data.detail); return; }
         showPredictResults(data);
     } catch(e) { alert('Batch ingestion failed: '+e.message); }
+    finally {
+        btnEl.disabled = false;
+        btnEl.innerHTML = 'Upload & Predict';
+    }
 }
 
 function showPredictResults(data) {
@@ -571,7 +628,7 @@ function showPredictResults(data) {
 
     // Add DBSCAN badge if enabled
     const dbscanBadge = data.dbscan ? `<span class="bg-purple-500/20 text-purple-400 font-mono text-[10px] px-2 py-1 rounded ml-2 border border-purple-500/30 tracking-widest uppercase">🔍 DBSCAN</span>` : '';
-    document.getElementById('predict-results-header').innerHTML = `Inference Telemetry <span class="bg-indigo-500/20 text-indigo-400 font-mono text-[10px] px-2 py-1 rounded ml-3 border border-indigo-500/30 tracking-widest uppercase">${data.model || selectedModel}</span>${dbscanBadge}`;
+    document.getElementById('predict-results-header').innerHTML = `Prediction Results <span class="bg-indigo-500/20 text-indigo-400 font-mono text-[10px] px-2 py-1 rounded ml-3 border border-indigo-500/30 tracking-widest uppercase">${data.model || selectedModel}</span>${dbscanBadge}`;
 
     const counts = {};
     if (data.predictions) data.predictions.forEach(p => { counts[p.predicted_label] = (counts[p.predicted_label]||0)+1; });

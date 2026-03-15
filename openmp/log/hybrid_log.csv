@@ -8,8 +8,10 @@ n_uncertain_full,105896
 n_unc_normal_direct,23547
 n_unc_attack_dbscan,82349
 n_holdout,13241
-macro_f1_hybrid,0.917283
-holdout_detection_rate,0.961785
+svm_confident_acc,0.8874
+macro_f1,0.7635
+holdout_detection_rate,0.9618
+false_alarm_rate,0.0001
 bots_correct,1676
 bots_total,1948
 bf_correct,9089
@@ -20,3 +22,8 @@ dbscan_reclass_normal,0
 dbscan_reclass_holdout,66564
 dbscan_novel,4596
 dbscan_unknown,11189
+train_ms,132111.8
+predict_ms,113978.5
+dbscan_ms,1126.3
+total_ms,247550.2
+gflops,234.4

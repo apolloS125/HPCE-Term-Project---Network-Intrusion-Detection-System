@@ -272,17 +272,28 @@ def parse_hybrid_log(filepath: str) -> dict:
             try:
                 if metric in ["macro_f1_hybrid", "macro_f1"]:
                     result["macro_f1"] = float(value)
-                    result["accuracy"] = float(value) * 100  # Convert to percentage
+                    # Only use as accuracy fallback if svm_confident_acc not found
+                    if result["accuracy"] == 0:
+                        result["accuracy"] = float(value) * 100
+                elif metric == "svm_confident_acc":
+                    # Primary accuracy metric
+                    result["accuracy"] = float(value) * 100
                 elif metric == "n_test":
                     result["n_test"] = int(value)
                 elif metric == "n_clusters":
                     result["n_clusters"] = int(value)
                 elif metric == "holdout_detection_rate":
                     result["detection_rate"] = float(value) * 100
-                elif metric == "svm_confident_acc":
-                    # Use this as accuracy if macro_f1 not found
-                    if result["accuracy"] == 0:
-                        result["accuracy"] = float(value) * 100
+                elif metric == "train_ms":
+                    result["train_ms"] = float(value)
+                elif metric == "predict_ms":
+                    result["predict_ms"] = float(value)
+                elif metric == "dbscan_ms":
+                    result["dbscan_ms"] = float(value)
+                elif metric == "total_ms":
+                    result["total_ms"] = float(value)
+                elif metric == "gflops":
+                    result["gflops"] = float(value)
             except:
                 pass
     return result
@@ -292,9 +303,18 @@ def get_all_models():
     """Collect all model data from output files in respective folders only."""
     models = {}
 
-    # CUDA - read from cuda/log/hybrid_log.csv only
+    # CUDA - read from cuda/log/hybrid_log.csv + cuda/log/cuda_rff_svm_3755.out
     cuda_log = str(PROJECT_ROOT / "cuda" / "log" / "hybrid_log.csv")
     cuda_data = parse_hybrid_log(cuda_log)
+
+    # Read additional data from cuda_rff_svm_3755.out
+    cuda_out_path = PROJECT_ROOT / "cuda" / "log" / "cuda_rff_svm_3755.out"
+    if cuda_out_path.exists():
+        cuda_timing = parse_output_file(str(cuda_out_path))
+        for key in ["train_ms", "predict_ms", "dbscan_ms", "total_ms", "gflops"]:
+            if cuda_timing.get(key, 0) > 0:
+                cuda_data[key] = cuda_timing[key]
+
     cuda_data["technique"] = "CUDA RFF-SVM"
     cuda_data["name"] = "CUDA"
     cuda_data["description"] = "GPU-accelerated RFF-SVM using NVIDIA CUDA. Uses Random Fourier Features for kernel approximation."

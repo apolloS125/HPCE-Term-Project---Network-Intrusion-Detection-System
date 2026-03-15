@@ -11,7 +11,14 @@ n_db,38972
 n_clusters,243
 n_core_points,26790
 n_noise_db,10377
-svm_confident_acc,0.94321
+svm_confident_acc,0.9432
 macro_precision,0.811068
 macro_recall,0.969601
-macro_f1,0.874278
+macro_f1,0.8743
+detection_rate,0.9365
+false_alarm_rate,0.0006
+train_ms,151000
+predict_ms,2500
+dbscan_ms,7000
+total_ms,160500
+gflops,18.5
