@@ -321,30 +321,33 @@ function renderComparisons() {
         ${cmpRow('Optimal Hardware', gpuWinner, true, COLORS.cyan)}
     `;
 
-    const accDiff = (thrAcc => cudaAcc - thrAcc)(thr.accuracy || 0);
-    const kernelWinner = cudaAcc > (thr.accuracy || 0) ? 'RFF (CUDA)' : 'Exact (Thread)';
+    const thrTimeNum = thr.total_ms || 1; // Prevent division by 0
+    const cudaTimeNum = cuda.total_ms || 1;
+    let baselineSpeedup = (thrTimeNum / cudaTimeNum).toFixed(2);
+    if (cudaTimeNum > thrTimeNum) baselineSpeedup = (cudaTimeNum / thrTimeNum).toFixed(2);
+    const kernelWinner = cudaTimeNum < thrTimeNum ? 'CUDA' : 'C++ Thread';
 
     document.getElementById('cmp-kernel-metrics').innerHTML = `
-        ${cmpRow('RFF Approx Accuracy', cudaAcc.toFixed(2) + '%')}
-        ${cmpRow('Exact Kernel Accuracy', (thr.accuracy || 0).toFixed(2) + '%')}
-        ${cmpRow('RFF Evaluation Time', fmt(cudaTime))}
-        ${cmpRow('Exact Evaluation Time', fmt(thrTime))}
-        ${cmpRow('Precision Deviation', (accDiff >= 0 ? '+' : '') + accDiff.toFixed(2) + '%', true, accDiff >= 0 ? COLORS.green : COLORS.amber)}
-        ${cmpRow('Algorithmic Winner', kernelWinner, true, COLORS.amber)}
+        ${cmpRow('CUDA Execution Time', fmt(cuda.total_ms || 0))}
+        ${cmpRow('C++ Thread Execution Time', fmt(thr.total_ms || 0))}
+        ${cmpRow('CUDA Throughput', cudaGflops.toFixed(2) + ' GF')}
+        ${cmpRow('C++ Thread Throughput', thrGflops.toFixed(2) + ' GF')}
+        ${cmpRow('Relative Speedup vs Baseline', baselineSpeedup + 'x', true, COLORS.amber)}
+        ${cmpRow('Performance Leader', kernelWinner, true, COLORS.amber)}
     `;
 
     setTimeout(() => {
         mk('chart-cmp-shared', 'bar', ['OpenMP', 'Thread'], [{ label: 'GFLOPS', data: [ompGflops, thrGflops], backgroundColor: [COLORS.indigo + 'cc', COLORS.indigo], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y' });
         mk('chart-cmp-dist', 'bar', ['MPI', 'PySpark'], [{ label: 'Time (s)', data: [mpiTime / 1000, pysTime / 1000], backgroundColor: [COLORS.violet + 'cc', COLORS.violet], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y' });
         mk('chart-cmp-gpu', 'bar', ['CUDA', 'OpenMP'], [{ label: 'GFLOPS', data: [cudaGflops, ompGflops], backgroundColor: [COLORS.cyan, COLORS.cyan + '66'], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y' });
-        mk('chart-cmp-kernel', 'bar', ['RFF', 'Exact'], [{ label: 'Accuracy', data: [cudaAcc, thr.accuracy || 0], backgroundColor: [COLORS.amber, COLORS.amber + '66'], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y', scales: { x: { ...chartDef.scales.y, min: 80, max: 100 } } });
+        mk('chart-cmp-kernel', 'bar', ['CUDA', 'C++ Thread'], [{ label: 'Time (s)', data: [cudaTimeNum / 1000, thrTimeNum / 1000], backgroundColor: [COLORS.amber, COLORS.amber + '66'], borderRadius: 4, barThickness: 36 }], { ...chartDef, indexAxis: 'y', scales: { x: { ...chartDef.scales.x, min: 0 } } });
     }, 50);
 
     const summaryData = [
         { cmp: 'Shared-memory', models: 'OpenMP vs Thread', winner: sharedWinner, color: 'text-indigo-400 bg-indigo-500/10 border border-indigo-500/20', finding: `${sharedWinner} achieves ${sharedSpeedup}x speedup relative to counterpart.` },
         { cmp: 'Distributed', models: 'MPI vs PySpark', winner: distWinner, color: 'text-violet-400 bg-violet-500/10 border border-violet-500/20', finding: `${distWinner} demonstrates ${distSpeedup}x superior scalability.` },
         { cmp: 'Hardware Topology', models: 'CUDA vs OpenMP', winner: gpuWinner, color: 'text-cyan-400 bg-cyan-500/10 border border-cyan-500/20', finding: `${gpuWinner} delivers orders of magnitude higher FLOPS.` },
-        { cmp: 'Kernel Strategy', models: 'RFF vs Exact', winner: kernelWinner, color: 'text-amber-400 bg-amber-500/10 border border-amber-500/20', finding: `${kernelWinner} provides better accuracy (${accDiff >= 0 ? '+' : ''}${accDiff.toFixed(2)}% margin).` },
+        { cmp: 'Baseline Scaling', models: 'CUDA vs Thread', winner: kernelWinner, color: 'text-amber-400 bg-amber-500/10 border border-amber-500/20', finding: `${kernelWinner} is ${baselineSpeedup}x faster than the baseline.` },
     ];
     document.getElementById('summary-tbody').innerHTML = summaryData.map(r => `
         <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">

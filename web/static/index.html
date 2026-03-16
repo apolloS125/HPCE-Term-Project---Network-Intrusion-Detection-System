@@ -224,21 +224,21 @@
             </div>
         </section>
 
-        <!-- ═══ Comparison 4: Kernel Approx ═══ -->
+        <!-- ═══ Comparison 4: Baseline Scaling ═══ -->
         <section class="card p-8 scroll-animate">
             <div class="flex items-center gap-3 mb-6">
                 <span class="px-2.5 py-1 bg-[#27272a] border border-[#3f3f46] text-zinc-300 text-xs font-medium rounded flex items-center gap-2">
-                    Algorithms
+                    Baseline Scaling
                 </span>
-                <h3 class="font-medium text-lg text-white">RFF-SVM (CUDA) vs Exact Kernel (Thread)</h3>
+                <h3 class="font-medium text-lg text-white">CUDA vs C++ Thread</h3>
             </div>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
                 <div>
-                    <p class="text-[13px] leading-relaxed text-dim mb-6">Evaluating the accuracy-performance trade-off of using Random Fourier Features.</p>
+                    <p class="text-[13px] leading-relaxed text-dim mb-6">Evaluating raw GPU acceleration (CUDA) against the standard CPU POSIX threading (C++ Thread) baseline.</p>
                     <div id="cmp-kernel-metrics" class="space-y-1"></div>
                 </div>
                 <div>
-                    <h4 class="text-[11px] font-medium text-dim mb-4 uppercase tracking-widest text-center">Accuracy Deviation</h4>
+                    <h4 class="text-[11px] font-medium text-dim mb-4 uppercase tracking-widest text-center">Execution Time Comparison</h4>
                     <div class="h-56"><canvas id="chart-cmp-kernel"></canvas></div>
                 </div>
             </div>
@@ -401,6 +401,6 @@
         </div>
     </footer>
 
-    <script src="/static/app.js?v=5"></script>
+    <script src="/static/app.js?v=6"></script>
 </body>
 </html>
